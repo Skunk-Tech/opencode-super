@@ -1,0 +1,3 @@
+# Dev/build artifacts inside the bundled harness source
+opencode-harness/dist/
+opencode-harness/node_modules/
