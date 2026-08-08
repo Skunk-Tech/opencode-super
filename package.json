@@ -1,0 +1,24 @@
+{
+  "name": "opencode-super",
+  "version": "0.1.0",
+  "description": "Superpowers skills + Continual Harness (self-improving agent) bundled for opencode",
+  "type": "module",
+  "main": ".opencode/plugins/index.js",
+  "keywords": [
+    "pi-package",
+    "skills",
+    "tdd",
+    "debugging",
+    "collaboration",
+    "workflow",
+    "harness"
+  ],
+  "pi": {
+    "extensions": [
+      "./.pi/extensions/superpowers.ts"
+    ],
+    "skills": [
+      "./skills"
+    ]
+  }
+}
