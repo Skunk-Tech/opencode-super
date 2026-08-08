@@ -12330,8 +12330,8 @@ function tool(input) {
 }
 tool.schema = exports_external;
 // opencode-harness/src/plugin.ts
-import fs3 from "fs";
-import path3 from "path";
+import fs5 from "fs";
+import path5 from "path";
 
 // opencode-harness/src/paths.ts
 import path from "path";
@@ -12622,6 +12622,146 @@ function applyOps(dir, ops) {
   return { snapshotID, applied };
 }
 
+// opencode-harness/src/autorefine.ts
+import fs3 from "fs";
+import path3 from "path";
+function refineStateFile(dir) {
+  return path3.join(dir, "refine-state.json");
+}
+function readRefineState(dir) {
+  const file2 = refineStateFile(dir);
+  if (!fs3.existsSync(file2))
+    return {};
+  try {
+    return JSON.parse(fs3.readFileSync(file2, "utf8"));
+  } catch {
+    return {};
+  }
+}
+function writeRefineState(dir, state) {
+  ensureDir(dir);
+  fs3.writeFileSync(refineStateFile(dir), JSON.stringify(state, null, 2), "utf8");
+}
+function newEvidenceSince(rows, watermark) {
+  if (!watermark)
+    return rows;
+  return rows.filter((r) => r.ts > watermark);
+}
+function isRefineDue(rows, state, minNew = 5) {
+  return newEvidenceSince(rows, state.watermark).length >= minNew;
+}
+var REFINE_PROMPT = `Run the harness refine workflow (load the \`harness-refine\` skill) and apply evidence-backed refinements. Be conservative: weak evidence means no change. Apply at most $MAX_OPS ops.`;
+var refining = false;
+async function runAutoRefine(client, directory, global, opts = {}) {
+  if (opts.enabled === false)
+    return false;
+  if (refining)
+    return false;
+  const state = readRefineState(global);
+  const rows = readEvidence(global);
+  if (!isRefineDue(rows, state, opts.minEvidence ?? 5))
+    return false;
+  refining = true;
+  try {
+    const session = await client.session.create({ query: { directory } });
+    await client.session.promptAsync({
+      path: { id: session.id },
+      body: {
+        agent: "refiner",
+        parts: [{ type: "text", text: REFINE_PROMPT.replace("$MAX_OPS", String(opts.maxOps ?? 3)) }]
+      }
+    });
+    const watermark = rows.reduce((max, r) => r.ts > max ? r.ts : max, "");
+    writeRefineState(global, { lastAutoRefineAt: new Date().toISOString(), watermark });
+    return true;
+  } catch {
+    return false;
+  } finally {
+    refining = false;
+  }
+}
+
+// opencode-harness/src/updater.ts
+import fs4 from "fs";
+import path4 from "path";
+import { fileURLToPath } from "url";
+var GITHUB_API = "https://api.github.com/repos";
+var RAW_GITHUB = "https://raw.githubusercontent.com";
+function ownBundlePath() {
+  try {
+    return fileURLToPath(import.meta.url);
+  } catch {
+    return;
+  }
+}
+function isGitInstalledBundle(ownPath) {
+  return ownPath.split(/[\\/]/).includes("node_modules");
+}
+function versionMarkerFile(ownPath) {
+  return ownPath + ".version";
+}
+function readVersionMarker(ownPath) {
+  const file2 = versionMarkerFile(ownPath);
+  if (!fs4.existsSync(file2))
+    return;
+  const content = fs4.readFileSync(file2, "utf8").trim();
+  return content.length > 0 ? content : undefined;
+}
+function writeVersionMarker(ownPath, sha) {
+  fs4.writeFileSync(versionMarkerFile(ownPath), sha, "utf8");
+}
+function atomicReplace(filePath, content) {
+  const dir = path4.dirname(filePath);
+  const tmp = path4.join(dir, `.harness.tmp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+  fs4.writeFileSync(tmp, content, "utf8");
+  fs4.renameSync(tmp, filePath);
+}
+async function fetchLatestSha(repo, fetcher = fetch) {
+  try {
+    const res = await fetcher(`${GITHUB_API}/${repo}/commits/main`, { headers: { "User-Agent": "opencode-harness" } });
+    if (!res.ok)
+      return;
+    const json2 = await res.json();
+    return json2.sha;
+  } catch {
+    return;
+  }
+}
+async function fetchBundle(repo, ref, fetcher = fetch) {
+  try {
+    const res = await fetcher(`${RAW_GITHUB}/${repo}/${ref}/.opencode/plugins/harness.js`);
+    if (!res.ok)
+      return;
+    const text = await res.text();
+    return text.length > 0 ? text : undefined;
+  } catch {
+    return;
+  }
+}
+async function checkForUpdates(ownPath, repo, opts = {}) {
+  if (opts.enabled === false)
+    return "skipped";
+  if (!isGitInstalledBundle(ownPath))
+    return "skipped";
+  const fetcher = opts.fetcher ?? fetch;
+  const latest = await fetchLatestSha(repo, fetcher);
+  if (!latest)
+    return "skipped";
+  const current = readVersionMarker(ownPath);
+  if (current === latest)
+    return "current";
+  const bundle = await fetchBundle(repo, latest, fetcher);
+  if (!bundle)
+    return "skipped";
+  try {
+    atomicReplace(ownPath, bundle);
+    writeVersionMarker(ownPath, latest);
+    return "updated";
+  } catch {
+    return "skipped";
+  }
+}
+
 // opencode-harness/src/plugin.ts
 function looksLikeError(output, metadata, tool3) {
   if (tool3 === "bash") {
@@ -12634,17 +12774,17 @@ function recordSessionProject(sessionID, project) {
   if (!project)
     return;
   ensureDir(globalHarnessDir());
-  const file2 = path3.join(globalHarnessDir(), "sessions.json");
+  const file2 = path5.join(globalHarnessDir(), "sessions.json");
   let map2 = {};
-  if (fs3.existsSync(file2)) {
+  if (fs5.existsSync(file2)) {
     try {
-      map2 = JSON.parse(fs3.readFileSync(file2, "utf8"));
+      map2 = JSON.parse(fs5.readFileSync(file2, "utf8"));
     } catch {
       map2 = {};
     }
   }
   map2[sessionID] = project;
-  fs3.writeFileSync(file2, JSON.stringify(map2, null, 2), "utf8");
+  fs5.writeFileSync(file2, JSON.stringify(map2, null, 2), "utf8");
 }
 var REFINE_TEMPLATE = `Run the harness refine workflow (load the \`harness-refine\` skill) and apply evidence-backed refinements. Focus: $ARGUMENTS (optional).`;
 var HARNESS_TEMPLATE = `Handle a harness management request using the appropriate harness tools:
@@ -12653,12 +12793,27 @@ var HARNESS_TEMPLATE = `Handle a harness management request using the appropriat
 - rollback <id> -> \`harness_rollback\` with id $1
 
 Request: $ARGUMENTS`;
+var AUTO_REFINE_ENABLED = true;
+var AUTO_REFINE_MIN_EVIDENCE = 5;
+var AUTO_REFINE_MAX_OPS = 3;
+var AUTO_UPDATE_ENABLED = true;
+var UPDATE_CHECK_HOURS = 6;
+var UPDATE_REPO = "Skunk-Tech/opencode-super";
 function isPrematureStop(finish, sawToolCalls) {
   return finish === "stop" && sawToolCalls;
 }
-var HarnessPlugin = async ({ directory }) => {
+var HarnessPlugin = async ({ directory, client }) => {
   const global = globalHarnessDir();
   const activity = new Map;
+  const refineClient = {
+    session: {
+      create: async (opts) => {
+        const res = await client.session.create({ query: opts.query, throwOnError: true });
+        return { id: res.data.id };
+      },
+      promptAsync: (opts) => client.session.promptAsync(opts)
+    }
+  };
   const recordFinish = (sessionID, finish) => {
     if (!sessionID || finish === undefined)
       return;
@@ -12668,6 +12823,23 @@ var HarnessPlugin = async ({ directory }) => {
       cur.sawToolCalls = true;
     activity.set(sessionID, cur);
   };
+  const ownPath = ownBundlePath();
+  const updateStateFile = path5.join(global, "update-state.json");
+  const recordUpdateState = (state) => {
+    try {
+      fs5.writeFileSync(updateStateFile, JSON.stringify({ ...state, checkedAt: new Date().toISOString() }, null, 2), "utf8");
+    } catch {}
+  };
+  const checkUpdate = () => {
+    checkForUpdates(ownPath ?? "", UPDATE_REPO, { enabled: AUTO_UPDATE_ENABLED }).then((result) => {
+      if (result === "updated")
+        recordUpdateState({ pendingRestart: true, latest: readVersionMarker(ownPath ?? "") ?? "unknown" });
+      else if (result === "current")
+        recordUpdateState({ pendingRestart: false });
+    }).catch(() => {});
+  };
+  const initialTimer = setTimeout(checkUpdate, 30000);
+  const intervalTimer = setInterval(checkUpdate, UPDATE_CHECK_HOURS * 3600000);
   return {
     config: async (config2) => {
       config2.command = config2.command ?? {};
@@ -12725,6 +12897,7 @@ var HarnessPlugin = async ({ directory }) => {
         }
         appendEvidence(global, { ts: new Date().toISOString(), sessionID: id, kind: "session_idle", project: directory });
         activity.delete(id);
+        runAutoRefine(refineClient, directory, global, { enabled: AUTO_REFINE_ENABLED, minEvidence: AUTO_REFINE_MIN_EVIDENCE });
       } else if (event.type === "session.created") {
         appendEvidence(global, { ts: new Date().toISOString(), sessionID: id, kind: "session_created", project: directory });
       }
@@ -12782,12 +12955,22 @@ Ops: ${applied.join(", ")}`;
         async execute() {
           const state = loadState(global);
           const snapshots = listSnapshots(global);
+          const refine2 = readRefineState(global);
+          let update = "no check yet";
+          try {
+            if (fs5.existsSync(updateStateFile)) {
+              const u = JSON.parse(fs5.readFileSync(updateStateFile, "utf8"));
+              update = u.pendingRestart ? `update available (${u.latest}), restart opencode to load` : `up to date (checked ${u.checkedAt})`;
+            }
+          } catch {}
           return `## Harness status
 global: ${global}
 memories: ${state.memories.length}
 specs: ${state.specs.length}
 evidence entries: ${readEvidence(global).length}
-snapshots: ${snapshots.length}`;
+snapshots: ${snapshots.length}
+last auto-refine: ${refine2.lastAutoRefineAt ?? "never"}
+updates: ${update}`;
         }
       }),
       harness_history: tool({
@@ -12821,5 +13004,11 @@ snapshots: ${snapshots.length}`;
 export {
   looksLikeError,
   isPrematureStop,
-  HarnessPlugin
+  UPDATE_REPO,
+  UPDATE_CHECK_HOURS,
+  HarnessPlugin,
+  AUTO_UPDATE_ENABLED,
+  AUTO_REFINE_MIN_EVIDENCE,
+  AUTO_REFINE_MAX_OPS,
+  AUTO_REFINE_ENABLED
 };
