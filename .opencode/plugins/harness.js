@@ -12625,6 +12625,8 @@ function applyOps(dir, ops) {
 // opencode-harness/src/autorefine.ts
 import fs3 from "fs";
 import path3 from "path";
+var AUTO_REFINE_MIN_EVIDENCE = 5;
+var AUTO_REFINE_MAX_OPS = 3;
 function refineStateFile(dir) {
   return path3.join(dir, "refine-state.json");
 }
@@ -12647,7 +12649,7 @@ function newEvidenceSince(rows, watermark) {
     return rows;
   return rows.filter((r) => r.ts > watermark);
 }
-function isRefineDue(rows, state, minNew = 5) {
+function isRefineDue(rows, state, minNew = AUTO_REFINE_MIN_EVIDENCE) {
   return newEvidenceSince(rows, state.watermark).length >= minNew;
 }
 var REFINE_PROMPT = `Run the harness refine workflow (load the \`harness-refine\` skill) and apply evidence-backed refinements. Be conservative: weak evidence means no change. Apply at most $MAX_OPS ops.`;
@@ -12659,7 +12661,7 @@ async function runAutoRefine(client, directory, global, opts = {}) {
     return false;
   const state = readRefineState(global);
   const rows = readEvidence(global);
-  if (!isRefineDue(rows, state, opts.minEvidence ?? 5))
+  if (!isRefineDue(rows, state, opts.minEvidence ?? AUTO_REFINE_MIN_EVIDENCE))
     return false;
   refining = true;
   try {
@@ -12668,7 +12670,7 @@ async function runAutoRefine(client, directory, global, opts = {}) {
       path: { id: session.id },
       body: {
         agent: "refiner",
-        parts: [{ type: "text", text: REFINE_PROMPT.replace("$MAX_OPS", String(opts.maxOps ?? 3)) }]
+        parts: [{ type: "text", text: REFINE_PROMPT.replace("$MAX_OPS", String(opts.maxOps ?? AUTO_REFINE_MAX_OPS)) }]
       }
     });
     const watermark = rows.reduce((max, r) => r.ts > max ? r.ts : max, "");
@@ -12794,8 +12796,6 @@ var HARNESS_TEMPLATE = `Handle a harness management request using the appropriat
 
 Request: $ARGUMENTS`;
 var AUTO_REFINE_ENABLED = true;
-var AUTO_REFINE_MIN_EVIDENCE = 5;
-var AUTO_REFINE_MAX_OPS = 3;
 var AUTO_UPDATE_ENABLED = true;
 var UPDATE_CHECK_HOURS = 6;
 var UPDATE_REPO = "Skunk-Tech/opencode-super";
@@ -12897,7 +12897,7 @@ var HarnessPlugin = async ({ directory, client }) => {
         }
         appendEvidence(global, { ts: new Date().toISOString(), sessionID: id, kind: "session_idle", project: directory });
         activity.delete(id);
-        runAutoRefine(refineClient, directory, global, { enabled: AUTO_REFINE_ENABLED, minEvidence: AUTO_REFINE_MIN_EVIDENCE });
+        runAutoRefine(refineClient, directory, global, { enabled: AUTO_REFINE_ENABLED, minEvidence: AUTO_REFINE_MIN_EVIDENCE, maxOps: AUTO_REFINE_MAX_OPS });
       } else if (event.type === "session.created") {
         appendEvidence(global, { ts: new Date().toISOString(), sessionID: id, kind: "session_created", project: directory });
       }
@@ -13008,7 +13008,5 @@ export {
   UPDATE_CHECK_HOURS,
   HarnessPlugin,
   AUTO_UPDATE_ENABLED,
-  AUTO_REFINE_MIN_EVIDENCE,
-  AUTO_REFINE_MAX_OPS,
   AUTO_REFINE_ENABLED
 };
