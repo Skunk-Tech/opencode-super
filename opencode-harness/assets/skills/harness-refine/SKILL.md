@@ -15,9 +15,11 @@ You are running the opencode Continual Harness refine loop. Be conservative and 
 4. For each strong candidate (score >= 0.6), call `harness_apply` with a concrete op:
    - `memory` — durable lesson with exact body and evidence reference.
    - `spec` — updated skill/subagent description.
+   - `spec` with `specKind: team` — a team-architecture spec for a recurring task type (Pattern/Task type/Roles/Coordination/Use when body shape).
    - `delete` — a memory/spec that proved wrong or is superseded.
 5. For brand-new skills or agents: only create them if repeated friction clearly justifies it. Prefer updating existing memories/specs first.
-6. If no candidate is strong, report "No change recommended" and stop.
+6. For team specs: read `references/team-architecture-patterns.md` first, pick the pattern matching the task shape, and only propose a team when evidence shows repeated coordination friction for that task type.
+7. If no candidate is strong, report "No change recommended" and stop.
 
 ## Rules
 

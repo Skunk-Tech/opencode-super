@@ -54,3 +54,33 @@ test("update constants have spec defaults", () => {
   expect(UPDATE_CHECK_HOURS).toBe(6);
   expect(UPDATE_REPO).toBe("Skunk-Tech/opencode-super");
 });
+
+test("harness_team returns a named team spec body", async () => {
+  const hooks = (await HarnessPlugin({ directory: process.cwd(), client: {} } as any)) as any;
+  try {
+    await hooks.tool.harness_apply.execute({
+      ops: [{ op: "spec", kind: "spec", specKind: "team", name: "doc-team", scope: "global", body: "Pattern: pipeline\nTask type: docs\nRoles: writer, reviewer\nCoordination: writer then reviewer\nUse when: repeated doc rewrites", confidence: 0.7, evidence: ["smoke"] }],
+    });
+    const out = await hooks.tool.harness_team.execute({ name: "doc-team" });
+    expect(out).toContain("doc-team");
+    expect(out).toContain("Pattern: pipeline");
+  } finally {
+    // cleanup: these smoke tests write to the real global harness dir; delete the spec so runs stay isolated
+    await hooks.tool.harness_apply.execute({
+      ops: [{ op: "delete", kind: "spec", name: "doc-team", scope: "global", body: "" }],
+    });
+  }
+});
+
+test("harness_team lists all teams when no name given", async () => {
+  const hooks = (await HarnessPlugin({ directory: process.cwd(), client: {} } as any)) as any;
+  const out = await hooks.tool.harness_team.execute({});
+  expect(out.length).toBeGreaterThan(0);
+});
+
+test("harness_team reports unknown name and lists available teams", async () => {
+  const hooks = (await HarnessPlugin({ directory: process.cwd(), client: {} } as any)) as any;
+  const out = await hooks.tool.harness_team.execute({ name: "no-such-team" });
+  expect(out).toContain("no-such-team");
+  expect(out).toMatch(/Available teams:|No team specs stored yet\./);
+});

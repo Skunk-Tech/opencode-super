@@ -100,3 +100,23 @@ test("rollback to an empty snapshot removes entries added afterward", () => {
     expect(listMemories(dir).length).toBe(0);
   } finally { cleanup(); }
 });
+
+test("a team-kind spec round-trips through writeSpec and listSpecs", () => {
+  const { dir, cleanup } = tmpDir();
+  try {
+    writeSpec(dir, {
+      name: "doc-team",
+      kind: "team",
+      scope: "global",
+      confidence: 0.7,
+      updated: "t",
+      evidence: ["e1"],
+      body: "Pattern: pipeline\nTask type: docs\nRoles: writer, reviewer\nCoordination: writer then reviewer\nUse when: repeated doc rewrites",
+    });
+    const specs = listSpecs(dir);
+    expect(specs.length).toBe(1);
+    expect(specs[0].kind).toBe("team");
+    expect(specs[0].name).toBe("doc-team");
+    expect(specs[0].body).toContain("Pattern: pipeline");
+  } finally { cleanup(); }
+});

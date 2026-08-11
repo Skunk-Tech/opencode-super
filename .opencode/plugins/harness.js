@@ -12467,7 +12467,7 @@ function listSpecs(dir) {
     const { fields, body } = parseFrontmatter(fs2.readFileSync(f, "utf8"));
     return {
       name: fields.name ?? path2.basename(f, ".md"),
-      kind: fields.kind === "subagent" ? "subagent" : "skill",
+      kind: fields.kind === "subagent" ? "subagent" : fields.kind === "team" ? "team" : "skill",
       scope: fields.scope === "project" ? "project" : "global",
       confidence: Number(fields.confidence ?? 0.5),
       updated: fields.updated ?? "",
@@ -12568,9 +12568,10 @@ function buildCompactionContext(state, scope) {
 ${filtered.memories.map((m) => `- ${m.body}`).join(`
 `)}`);
   }
-  if (filtered.specs.length > 0) {
+  const nonTeamSpecs = filtered.specs.filter((s) => s.kind !== "team");
+  if (nonTeamSpecs.length > 0) {
     parts.push(`## Harness specs
-${filtered.specs.map((s) => `- ${s.name}: ${s.body}`).join(`
+${nonTeamSpecs.map((s) => `- ${s.name}: ${s.body}`).join(`
 `)}`);
   }
   return parts;
@@ -12947,7 +12948,7 @@ ${gatherEvidenceSummary(global, focus, directory)}
 ## Current state
 ${JSON.stringify(loadMergedState(global, project), null, 2)}
 
-Assess candidates on frequency, cost, risk, stability, and existing coverage. If a candidate scores strong (>=0.6), propose it via harness_apply with kind=memory|spec|delete (use specKind=skill|subagent for spec writes), scope=global for cross-project or scope=project for this repo, and the exact body. For new skills/agents, only if repeated friction justifies it. Otherwise report 'No change recommended'.`;
+Assess candidates on frequency, cost, risk, stability, and existing coverage. If a candidate scores strong (>=0.6), propose it via harness_apply with kind=memory|spec|delete (use specKind=skill|subagent|team for spec writes), scope=global for cross-project or scope=project for this repo, and the exact body. For team specs, use the fixed body shape (Pattern/Task type/Roles/Coordination/Use when) and consult the harness-refine skill's pattern reference. For new skills/agents/teams, only if repeated friction justifies it. Otherwise report 'No change recommended'.`;
         }
       }),
       harness_apply: tool({
@@ -12956,7 +12957,7 @@ Assess candidates on frequency, cost, risk, stability, and existing coverage. If
           ops: tool.schema.array(tool.schema.object({
             op: tool.schema.enum(["memory", "spec", "delete"]),
             kind: tool.schema.enum(["memory", "spec"]),
-            specKind: tool.schema.enum(["skill", "subagent"]).optional(),
+            specKind: tool.schema.enum(["skill", "subagent", "team"]).optional(),
             name: tool.schema.string(),
             scope: tool.schema.enum(["global", "project"]),
             body: tool.schema.string(),
@@ -12969,6 +12970,29 @@ Assess candidates on frequency, cost, risk, stability, and existing coverage. If
           const { snapshotID, applied } = applyOps(global, project, ops);
           return `Applied ${applied.length} op(s). Snapshot: ${snapshotID}
 Ops: ${applied.join(", ")}`;
+        }
+      }),
+      harness_team: tool({
+        description: "Fetch a stored team-architecture spec by name, or list all stored team specs.",
+        args: {
+          name: tool.schema.string().optional().describe("Team spec name to fetch.")
+        },
+        async execute(args) {
+          const name = args.name;
+          const state = loadMergedState(global, project);
+          const teams = state.specs.filter((s) => s.kind === "team");
+          if (name) {
+            const hit = teams.find((t) => t.name === name);
+            if (!hit) {
+              return `No team spec named "${name}". Available teams:
+${teams.length ? teams.map((t) => `- ${t.name}`).join(`
+`) : "none"}`;
+            }
+            return `## Team: ${hit.name}
+${hit.body}`;
+          }
+          return teams.length ? teams.map((t) => `- ${t.name}: ${t.body}`).join(`
+`) : "No team specs stored yet.";
         }
       }),
       harness_status: tool({

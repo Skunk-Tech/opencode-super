@@ -22,8 +22,9 @@ export function buildCompactionContext(state: HarnessState, scope: "global" | "p
   if (filtered.memories.length > 0) {
     parts.push(`## Harness memories\n${filtered.memories.map((m) => `- ${m.body}`).join("\n")}`);
   }
-  if (filtered.specs.length > 0) {
-    parts.push(`## Harness specs\n${filtered.specs.map((s) => `- ${s.name}: ${s.body}`).join("\n")}`);
+  const nonTeamSpecs = filtered.specs.filter((s) => s.kind !== "team");
+  if (nonTeamSpecs.length > 0) {
+    parts.push(`## Harness specs\n${nonTeamSpecs.map((s) => `- ${s.name}: ${s.body}`).join("\n")}`);
   }
   return parts;
 }

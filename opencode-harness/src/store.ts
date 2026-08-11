@@ -78,7 +78,7 @@ export type Memory = {
 
 export type Spec = {
   name: string;
-  kind: "skill" | "subagent";
+  kind: "skill" | "subagent" | "team";
   scope: "global" | "project";
   confidence: number;
   updated: string;
@@ -167,7 +167,7 @@ export function listSpecs(dir: string): Spec[] {
     const { fields, body } = parseFrontmatter(fs.readFileSync(f, "utf8"));
     return {
       name: fields.name ?? path.basename(f, ".md"),
-      kind: (fields.kind === "subagent" ? "subagent" : "skill") as "skill" | "subagent",
+      kind: (fields.kind === "subagent" ? "subagent" : fields.kind === "team" ? "team" : "skill") as "skill" | "subagent" | "team",
       scope: (fields.scope === "project" ? "project" : "global") as "global" | "project",
       confidence: Number(fields.confidence ?? 0.5),
       updated: fields.updated ?? "",

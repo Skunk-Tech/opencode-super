@@ -3,7 +3,7 @@ import { readEvidence, loadState, loadMergedState, writeMemory, writeSpec, delet
 export type RefineOp = {
   op: "memory" | "spec" | "delete";
   kind: "memory" | "spec";
-  specKind?: "skill" | "subagent";
+  specKind?: "skill" | "subagent" | "team";
   name: string;
   scope: "global" | "project";
   body: string;

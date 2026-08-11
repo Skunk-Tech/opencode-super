@@ -68,3 +68,20 @@ test("buildContinuationNudge returns a concise completion-preference block", () 
   expect(nudge.length).toBeLessThan(600);
   expect(nudge).toMatch(/continue|complete|finish/i);
 });
+
+test("buildCompactionContext excludes team-kind specs", () => {
+  const withTeam: HarnessState = {
+    version: 1,
+    updated: "t",
+    memories: [],
+    specs: [
+      { name: "s1", kind: "skill", scope: "global", confidence: 0.6, updated: "t", evidence: [], body: "Skill body." },
+      { name: "team1", kind: "team", scope: "global", confidence: 0.7, updated: "t", evidence: [], body: "Pattern: supervisor" },
+    ],
+  };
+  const ctx = buildCompactionContext(withTeam, "global");
+  const all = ctx.join("\n");
+  expect(all).toContain("Skill body.");
+  expect(all).not.toContain("Pattern: supervisor");
+  expect(all).not.toContain("team1");
+});
