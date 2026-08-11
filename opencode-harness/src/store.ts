@@ -191,13 +191,25 @@ export function loadState(dir: string): HarnessState {
   };
 }
 
+export function loadMergedState(global: string, project?: string): HarnessState {
+  const globalState = loadState(global);
+  if (!project) return globalState;
+  const projectState = loadState(project);
+  return {
+    version: 1,
+    updated: new Date().toISOString(),
+    memories: [...globalState.memories.filter((m) => m.scope === "global"), ...projectState.memories],
+    specs: [...globalState.specs.filter((s) => s.scope === "global"), ...projectState.specs],
+  };
+}
+
 function reflectionsDir(dir: string): string {
   return path.join(dir, "reflections");
 }
 
-export function snapshot(dir: string): string {
-  const id = new Date().toISOString().replace(/[:.]/g, "-");
-  const dest = path.join(reflectionsDir(dir), id);
+export function snapshot(dir: string, id?: string): string {
+  const snapshotID = id ?? new Date().toISOString().replace(/[:.]/g, "-");
+  const dest = path.join(reflectionsDir(dir), snapshotID);
   ensureDir(dest);
   for (const [sub, kind] of [["memories", "memory"], ["specs", "spec"]] as const) {
     for (const f of listFiles(dir, sub)) {
@@ -205,7 +217,7 @@ export function snapshot(dir: string): string {
       fs.copyFileSync(f, path.join(dest, sub, path.basename(f)));
     }
   }
-  return id;
+  return snapshotID;
 }
 
 export function listSnapshots(dir: string): string[] {

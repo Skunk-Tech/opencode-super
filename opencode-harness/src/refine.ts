@@ -1,4 +1,4 @@
-import { readEvidence, loadState, writeMemory, writeSpec, deleteEntry, snapshot, type Memory, type Spec } from "./store";
+import { readEvidence, loadState, loadMergedState, writeMemory, writeSpec, deleteEntry, snapshot, type Memory, type Spec } from "./store";
 
 export type RefineOp = {
   op: "memory" | "spec" | "delete";
@@ -11,9 +11,10 @@ export type RefineOp = {
   evidence?: string[];
 };
 
-export function gatherEvidenceSummary(dir: string, focus?: string): string {
+export function gatherEvidenceSummary(dir: string, focus?: string, project?: string): string {
   const rows = readEvidence(dir);
-  const filtered = focus ? rows.filter((r) => (r.args ?? "").includes(focus) || (r.output ?? "").includes(focus)) : rows;
+  const scoped = project ? rows.filter((r) => r.project === project) : rows;
+  const filtered = focus ? scoped.filter((r) => (r.args ?? "").includes(focus) || (r.output ?? "").includes(focus)) : scoped;
   const window = filtered.slice(-20);
   if (window.length === 0) return focus ? `No harness evidence matching "${focus}".` : "No harness evidence recorded yet.";
   const lines = window.map((r) => {
@@ -23,13 +24,17 @@ export function gatherEvidenceSummary(dir: string, focus?: string): string {
   return lines.join("\n");
 }
 
-export function applyOps(dir: string, ops: RefineOp[]): { snapshotID: string; applied: string[] } {
+export function applyOps(global: string, project: string, ops: RefineOp[]): { snapshotID: string; applied: string[] } {
   if (ops.length === 0) return { snapshotID: "", applied: [] };
-  const snapshotID = snapshot(dir);
   const now = new Date().toISOString();
   const applied: string[] = [];
-  const state = loadState(dir);
+  const globalState = loadState(global);
+  const projectState = loadState(project);
+  const touchesProject = ops.some((op) => op.scope === "project");
+  const snapshotID = snapshot(global);
+  if (touchesProject) snapshot(project, snapshotID);
   for (const op of ops) {
+    const dir = op.scope === "project" ? project : global;
     if (op.op === "delete") {
       deleteEntry(dir, op.kind, op.name);
       applied.push(`delete:${op.kind}:${op.name}`);
@@ -40,7 +45,7 @@ export function applyOps(dir: string, ops: RefineOp[]): { snapshotID: string; ap
         name: op.name,
         scope: op.scope,
         confidence: op.confidence ?? 0.5,
-        created: state.memories.find((m) => m.name === op.name)?.created ?? now,
+        created: (op.scope === "project" ? projectState : globalState).memories.find((m) => m.name === op.name)?.created ?? now,
         updated: now,
         evidence: op.evidence ?? [],
         body: op.body,

@@ -1,6 +1,37 @@
 import { expect, test } from "bun:test";
-import { writeMemory, writeSpec, listMemories, listSpecs, deleteEntry, loadState, snapshot, listSnapshots, rollback } from "../src/store";
+import { writeMemory, writeSpec, listMemories, listSpecs, deleteEntry, loadState, loadMergedState, snapshot, listSnapshots, rollback } from "../src/store";
 import { tmpDir } from "./helpers";
+
+test("loadMergedState combines global-scope from global dir and all project entries", () => {
+  const g = tmpDir();
+  const p = tmpDir();
+  try {
+    writeMemory(g.dir, { name: "g1", scope: "global", confidence: 0.9, created: "t", updated: "t", evidence: [], body: "global mem" });
+    writeMemory(p.dir, { name: "p1", scope: "project", confidence: 0.8, created: "t", updated: "t", evidence: [], body: "project mem" });
+    const state = loadMergedState(g.dir, p.dir);
+    expect(state.memories.map((m) => m.name)).toContain("g1");
+    expect(state.memories.map((m) => m.name)).toContain("p1");
+  } finally { g.cleanup(); p.cleanup(); }
+});
+
+test("loadMergedState without a project dir returns global state only", () => {
+  const { dir, cleanup } = tmpDir();
+  try {
+    writeMemory(dir, { name: "g1", scope: "global", confidence: 0.9, created: "t", updated: "t", evidence: [], body: "global mem" });
+    const state = loadMergedState(dir);
+    expect(state.memories.length).toBe(1);
+  } finally { cleanup(); }
+});
+
+test("snapshot with explicit id uses that id", () => {
+  const { dir, cleanup } = tmpDir();
+  try {
+    writeMemory(dir, { name: "m1", scope: "global", confidence: 0.7, created: "t", updated: "t", evidence: [], body: "v1" });
+    const id = snapshot(dir, "shared-1");
+    expect(id).toBe("shared-1");
+    expect(listSnapshots(dir)).toContain("shared-1");
+  } finally { cleanup(); }
+});
 
 test("writeMemory and listMemories round-trip", () => {
   const { dir, cleanup } = tmpDir();

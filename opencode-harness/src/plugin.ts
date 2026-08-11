@@ -1,8 +1,8 @@
 import { tool, type Plugin } from "@opencode-ai/plugin";
 import fs from "fs";
 import path from "path";
-import { globalHarnessDir, ensureDir } from "./paths";
-import { appendEvidence, loadState, readEvidence, listSnapshots, rollback } from "./store";
+import { globalHarnessDir, projectHarnessDir, ensureDir } from "./paths";
+import { appendEvidence, loadState, loadMergedState, readEvidence, listSnapshots, rollback } from "./store";
 import { buildInjection, buildCompactionContext, buildContinuationNudge } from "./inject";
 import { gatherEvidenceSummary, applyOps, type RefineOp } from "./refine";
 import { runAutoRefine, readRefineState, AUTO_REFINE_MIN_EVIDENCE, AUTO_REFINE_MAX_OPS, type AutoRefineClient } from "./autorefine";
@@ -55,6 +55,7 @@ export function isPrematureStop(finish: string | undefined, sawToolCalls: boolea
 
 export const HarnessPlugin: Plugin = async ({ directory, client }) => {
   const global = globalHarnessDir();
+  const project = projectHarnessDir(directory);
   const activity = new Map<string, SessionActivity>();
 
   // The SDK client returns { data, error } shapes; adapt it to the AutoRefineClient contract
@@ -149,20 +150,20 @@ export const HarnessPlugin: Plugin = async ({ directory, client }) => {
         }
         appendEvidence(global, { ts: new Date().toISOString(), sessionID: id, kind: "session_idle", project: directory });
         activity.delete(id);
-        void runAutoRefine(refineClient, directory, global, { enabled: AUTO_REFINE_ENABLED, minEvidence: AUTO_REFINE_MIN_EVIDENCE, maxOps: AUTO_REFINE_MAX_OPS });
+        void runAutoRefine(refineClient, directory, global, project, { enabled: AUTO_REFINE_ENABLED, minEvidence: AUTO_REFINE_MIN_EVIDENCE, maxOps: AUTO_REFINE_MAX_OPS });
       } else if (event.type === "session.created") {
         appendEvidence(global, { ts: new Date().toISOString(), sessionID: id, kind: "session_created", project: directory });
       }
     },
 
     "experimental.chat.system.transform": async (_input, output) => {
-      const injection = buildInjection(loadState(global), "global");
+      const injection = buildInjection(loadMergedState(global, project), "project");
       if (injection) output.system.push(injection);
       output.system.push(buildContinuationNudge());
     },
 
     "experimental.session.compacting": async (_input, output) => {
-      output.context.push(...buildCompactionContext(loadState(global), "global"));
+      output.context.push(...buildCompactionContext(loadMergedState(global, project), "project"));
     },
 
     tool: {
@@ -173,7 +174,7 @@ export const HarnessPlugin: Plugin = async ({ directory, client }) => {
         },
         async execute(args) {
           const focus = (args as { focus?: string }).focus;
-          return `## Harness evidence (recent)\n${gatherEvidenceSummary(global, focus)}\n\n## Current state\n${JSON.stringify(loadState(global), null, 2)}\n\nAssess candidates on frequency, cost, risk, stability, and existing coverage. If a candidate scores strong (>=0.6), propose it via harness_apply with kind=memory|spec|delete (use specKind=skill|subagent for spec writes) and the exact body. For new skills/agents, only if repeated friction justifies it. Otherwise report 'No change recommended'.`;
+          return `## Harness evidence (recent)\n${gatherEvidenceSummary(global, focus, directory)}\n\n## Current state\n${JSON.stringify(loadMergedState(global, project), null, 2)}\n\nAssess candidates on frequency, cost, risk, stability, and existing coverage. If a candidate scores strong (>=0.6), propose it via harness_apply with kind=memory|spec|delete (use specKind=skill|subagent for spec writes), scope=global for cross-project or scope=project for this repo, and the exact body. For new skills/agents, only if repeated friction justifies it. Otherwise report 'No change recommended'.`;
         },
       }),
 
@@ -193,7 +194,7 @@ export const HarnessPlugin: Plugin = async ({ directory, client }) => {
         },
         async execute(args) {
           const ops = (args as { ops: RefineOp[] }).ops;
-          const { snapshotID, applied } = applyOps(global, ops);
+          const { snapshotID, applied } = applyOps(global, project, ops);
           return `Applied ${applied.length} op(s). Snapshot: ${snapshotID}\nOps: ${applied.join(", ")}`;
         },
       }),
@@ -202,9 +203,9 @@ export const HarnessPlugin: Plugin = async ({ directory, client }) => {
         description: "Show the current harness state: memory/spec counts, evidence totals, and snapshots.",
         args: {},
         async execute() {
-          const state = loadState(global);
+          const state = loadMergedState(global, project);
           const snapshots = listSnapshots(global);
-          const refine = readRefineState(global);
+          const refine = readRefineState(project);
           let update = "no check yet";
           try {
             if (fs.existsSync(updateStateFile)) {
@@ -212,7 +213,7 @@ export const HarnessPlugin: Plugin = async ({ directory, client }) => {
               update = u.pendingRestart ? `update available (${u.latest}), restart opencode to load` : `up to date (checked ${u.checkedAt})`;
             }
           } catch { /* corrupt update-state.json */ }
-          return `## Harness status\nglobal: ${global}\nmemories: ${state.memories.length}\nspecs: ${state.specs.length}\nevidence entries: ${readEvidence(global).length}\nsnapshots: ${snapshots.length}\nlast auto-refine: ${refine.lastAutoRefineAt ?? "never"}\nupdates: ${update}`;
+          return `## Harness status\nglobal: ${global}\nproject: ${project}\nmemories: ${state.memories.length}\nspecs: ${state.specs.length}\nevidence entries: ${readEvidence(global).length}\nsnapshots: ${snapshots.length}\nlast auto-refine: ${refine.lastAutoRefineAt ?? "never"}\nupdates: ${update}`;
         },
       }),
 
@@ -220,8 +221,10 @@ export const HarnessPlugin: Plugin = async ({ directory, client }) => {
         description: "List harness snapshot ids for rollback.",
         args: {},
         async execute() {
-          const snapshots = listSnapshots(global);
-          return snapshots.length ? snapshots.join("\n") : "No snapshots yet.";
+          const globalSnaps = listSnapshots(global);
+          const projectSnaps = listSnapshots(project);
+          const snaps = [...new Set([...globalSnaps, ...projectSnaps])];
+          return snaps.length ? snaps.join("\n") : "No snapshots yet.";
         },
       }),
 
@@ -234,9 +237,10 @@ export const HarnessPlugin: Plugin = async ({ directory, client }) => {
           const id = (args as { id: string }).id;
           try {
             rollback(global, id);
+            if (listSnapshots(project).includes(id)) rollback(project, id);
             return `Rolled back to snapshot ${id}`;
           } catch (e) {
-            const avail = listSnapshots(global);
+            const avail = [...new Set([...listSnapshots(global), ...listSnapshots(project)])];
             return `Rollback failed: ${(e as Error).message}. Available: ${avail.join(", ") || "none"}`;
           }
         },

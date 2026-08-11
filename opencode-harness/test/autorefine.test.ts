@@ -11,7 +11,7 @@ function tmpDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "autorefine-test-"));
 }
 
-const row = (ts: string): EvidenceEntry => ({ ts, sessionID: "s1", kind: "tool_failure", tool: "bash" });
+const row = (ts: string, project = "/work"): EvidenceEntry => ({ ts, sessionID: "s1", kind: "tool_failure", tool: "bash", project });
 
 test("newEvidenceSince with no watermark returns all rows", () => {
   const rows = [row("2026-01-01T00:00:00.000Z"), row("2026-01-02T00:00:00.000Z")];
@@ -51,10 +51,11 @@ test("writeRefineState persists and readRefineState round-trips", () => {
 });
 
 test("runAutoRefine creates a refiner session and prompts it when due", async () => {
-  const dir = tmpDir();
-  writeRefineState(dir, {});
+  const global = tmpDir();
+  const project = tmpDir();
+  writeRefineState(project, {});
   const rows = Array.from({ length: 5 }, (_, i) => row(`2026-01-0${i + 1}T00:00:00.000Z`));
-  fs.writeFileSync(path.join(dir, "evidence.jsonl"), rows.map((r) => JSON.stringify(r)).join("\n") + "\n", "utf8");
+  fs.writeFileSync(path.join(global, "evidence.jsonl"), rows.map((r) => JSON.stringify(r)).join("\n") + "\n", "utf8");
   let prompted = 0;
   const client = {
     session: {
@@ -68,42 +69,60 @@ test("runAutoRefine creates a refiner session and prompts it when due", async ()
       },
     },
   };
-  const ok = await runAutoRefine(client as any, "/work", dir);
+  const ok = await runAutoRefine(client as any, "/work", global, project);
   expect(ok).toBe(true);
   expect(prompted).toBe(1);
-  const state = readRefineState(dir);
+  const state = readRefineState(project);
   expect(state.watermark).toBe("2026-01-05T00:00:00.000Z");
   expect(state.lastAutoRefineAt).toBeDefined();
 });
 
-test("runAutoRefine does nothing when evidence gate not met", async () => {
-  const dir = tmpDir();
-  writeRefineState(dir, { watermark: "2999-12-31T00:00:00.000Z" });
-  fs.writeFileSync(path.join(dir, "evidence.jsonl"), JSON.stringify(row("2026-01-01T00:00:00.000Z")) + "\n", "utf8");
+test("runAutoRefine ignores evidence from other projects", async () => {
+  const global = tmpDir();
+  const project = tmpDir();
+  writeRefineState(project, {});
+  // 5 rows belong to another project; only 1 belongs to /work
+  const other = Array.from({ length: 5 }, (_, i) => row(`2026-01-0${i + 1}T00:00:00.000Z`, "/other"));
+  const mine = [row("2026-01-06T00:00:00.000Z")];
+  fs.writeFileSync(path.join(global, "evidence.jsonl"), [...other, ...mine].map((r) => JSON.stringify(r)).join("\n") + "\n", "utf8");
   let prompted = 0;
   const client = { session: { async create() { return { id: "x" }; }, async promptAsync() { prompted++; return {}; } } };
-  const ok = await runAutoRefine(client as any, "/work", dir);
+  const ok = await runAutoRefine(client as any, "/work", global, project);
+  expect(ok).toBe(false);
+  expect(prompted).toBe(0);
+});
+
+test("runAutoRefine does nothing when evidence gate not met", async () => {
+  const global = tmpDir();
+  const project = tmpDir();
+  writeRefineState(project, { watermark: "2999-12-31T00:00:00.000Z" });
+  fs.writeFileSync(path.join(global, "evidence.jsonl"), JSON.stringify(row("2026-01-01T00:00:00.000Z")) + "\n", "utf8");
+  let prompted = 0;
+  const client = { session: { async create() { return { id: "x" }; }, async promptAsync() { prompted++; return {}; } } };
+  const ok = await runAutoRefine(client as any, "/work", global, project);
   expect(ok).toBe(false);
   expect(prompted).toBe(0);
 });
 
 test("runAutoRefine returns false when disabled", async () => {
-  const dir = tmpDir();
-  writeRefineState(dir, {});
+  const global = tmpDir();
+  const project = tmpDir();
+  writeRefineState(project, {});
   const rows = Array.from({ length: 5 }, (_, i) => row(`2026-01-0${i + 1}T00:00:00.000Z`));
-  fs.writeFileSync(path.join(dir, "evidence.jsonl"), rows.map((r) => JSON.stringify(r)).join("\n") + "\n", "utf8");
+  fs.writeFileSync(path.join(global, "evidence.jsonl"), rows.map((r) => JSON.stringify(r)).join("\n") + "\n", "utf8");
   const client = { session: { async create() { return { id: "x" }; }, async promptAsync() { return {}; } } };
-  const ok = await runAutoRefine(client as any, "/work", dir, { enabled: false });
+  const ok = await runAutoRefine(client as any, "/work", global, project, { enabled: false });
   expect(ok).toBe(false);
 });
 
 test("runAutoRefine swallows client failures and leaves watermark unchanged", async () => {
-  const dir = tmpDir();
-  writeRefineState(dir, { watermark: "2026-01-01T00:00:00.000Z" });
+  const global = tmpDir();
+  const project = tmpDir();
+  writeRefineState(project, { watermark: "2026-01-01T00:00:00.000Z" });
   const rows = Array.from({ length: 5 }, (_, i) => row(`2026-01-0${i + 2}T00:00:00.000Z`));
-  fs.writeFileSync(path.join(dir, "evidence.jsonl"), rows.map((r) => JSON.stringify(r)).join("\n") + "\n", "utf8");
+  fs.writeFileSync(path.join(global, "evidence.jsonl"), rows.map((r) => JSON.stringify(r)).join("\n") + "\n", "utf8");
   const client = { session: { async create() { throw new Error("boom"); }, async promptAsync() { return {}; } } };
-  const ok = await runAutoRefine(client as any, "/work", dir);
+  const ok = await runAutoRefine(client as any, "/work", global, project);
   expect(ok).toBe(false);
-  expect(readRefineState(dir).watermark).toBe("2026-01-01T00:00:00.000Z");
+  expect(readRefineState(project).watermark).toBe("2026-01-01T00:00:00.000Z");
 });

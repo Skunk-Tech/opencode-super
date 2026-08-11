@@ -54,12 +54,13 @@ export async function runAutoRefine(
   client: AutoRefineClient,
   directory: string,
   global: string,
+  project: string,
   opts: { enabled?: boolean; minEvidence?: number; maxOps?: number } = {},
 ): Promise<boolean> {
   if (opts.enabled === false) return false;
   if (refining) return false;
-  const state = readRefineState(global);
-  const rows = readEvidence(global);
+  const state = readRefineState(project);
+  const rows = readEvidence(global).filter((r) => r.project === directory);
   if (!isRefineDue(rows, state, opts.minEvidence ?? AUTO_REFINE_MIN_EVIDENCE)) return false;
   refining = true;
   try {
@@ -72,7 +73,7 @@ export async function runAutoRefine(
       },
     });
     const watermark = rows.reduce((max, r) => (r.ts > max ? r.ts : max), "");
-    writeRefineState(global, { lastAutoRefineAt: new Date().toISOString(), watermark });
+    writeRefineState(project, { lastAutoRefineAt: new Date().toISOString(), watermark });
     return true;
   } catch {
     return false;

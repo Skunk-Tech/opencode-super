@@ -12340,6 +12340,9 @@ import fs from "fs";
 function globalHarnessDir() {
   return path.join(os.homedir(), ".config", "opencode", "harness");
 }
+function projectHarnessDir(worktreeOrDir) {
+  return path.join(worktreeOrDir, ".opencode", "harness");
+}
 function ensureDir(dir) {
   fs.mkdirSync(dir, { recursive: true });
   return dir;
@@ -12486,12 +12489,24 @@ function loadState(dir) {
     specs: listSpecs(dir)
   };
 }
+function loadMergedState(global, project) {
+  const globalState = loadState(global);
+  if (!project)
+    return globalState;
+  const projectState = loadState(project);
+  return {
+    version: 1,
+    updated: new Date().toISOString(),
+    memories: [...globalState.memories.filter((m) => m.scope === "global"), ...projectState.memories],
+    specs: [...globalState.specs.filter((s) => s.scope === "global"), ...projectState.specs]
+  };
+}
 function reflectionsDir(dir) {
   return path2.join(dir, "reflections");
 }
-function snapshot(dir) {
-  const id = new Date().toISOString().replace(/[:.]/g, "-");
-  const dest = path2.join(reflectionsDir(dir), id);
+function snapshot(dir, id) {
+  const snapshotID = id ?? new Date().toISOString().replace(/[:.]/g, "-");
+  const dest = path2.join(reflectionsDir(dir), snapshotID);
   ensureDir(dest);
   for (const [sub, kind] of [["memories", "memory"], ["specs", "spec"]]) {
     for (const f of listFiles(dir, sub)) {
@@ -12499,7 +12514,7 @@ function snapshot(dir) {
       fs2.copyFileSync(f, path2.join(dest, sub, path2.basename(f)));
     }
   }
-  return id;
+  return snapshotID;
 }
 function listSnapshots(dir) {
   const full = reflectionsDir(dir);
@@ -12567,9 +12582,10 @@ Prefer to complete your work rather than stop early. If a task is unfinished, co
 }
 
 // opencode-harness/src/refine.ts
-function gatherEvidenceSummary(dir, focus) {
+function gatherEvidenceSummary(dir, focus, project) {
   const rows = readEvidence(dir);
-  const filtered = focus ? rows.filter((r) => (r.args ?? "").includes(focus) || (r.output ?? "").includes(focus)) : rows;
+  const scoped = project ? rows.filter((r) => r.project === project) : rows;
+  const filtered = focus ? scoped.filter((r) => (r.args ?? "").includes(focus) || (r.output ?? "").includes(focus)) : scoped;
   const window = filtered.slice(-20);
   if (window.length === 0)
     return focus ? `No harness evidence matching "${focus}".` : "No harness evidence recorded yet.";
@@ -12580,14 +12596,19 @@ function gatherEvidenceSummary(dir, focus) {
   return lines.join(`
 `);
 }
-function applyOps(dir, ops) {
+function applyOps(global, project, ops) {
   if (ops.length === 0)
     return { snapshotID: "", applied: [] };
-  const snapshotID = snapshot(dir);
   const now = new Date().toISOString();
   const applied = [];
-  const state = loadState(dir);
+  const globalState = loadState(global);
+  const projectState = loadState(project);
+  const touchesProject = ops.some((op) => op.scope === "project");
+  const snapshotID = snapshot(global);
+  if (touchesProject)
+    snapshot(project, snapshotID);
   for (const op of ops) {
+    const dir = op.scope === "project" ? project : global;
     if (op.op === "delete") {
       deleteEntry(dir, op.kind, op.name);
       applied.push(`delete:${op.kind}:${op.name}`);
@@ -12598,7 +12619,7 @@ function applyOps(dir, ops) {
         name: op.name,
         scope: op.scope,
         confidence: op.confidence ?? 0.5,
-        created: state.memories.find((m) => m.name === op.name)?.created ?? now,
+        created: (op.scope === "project" ? projectState : globalState).memories.find((m) => m.name === op.name)?.created ?? now,
         updated: now,
         evidence: op.evidence ?? [],
         body: op.body
@@ -12654,13 +12675,13 @@ function isRefineDue(rows, state, minNew = AUTO_REFINE_MIN_EVIDENCE) {
 }
 var REFINE_PROMPT = `Run the harness refine workflow (load the \`harness-refine\` skill) and apply evidence-backed refinements. Be conservative: weak evidence means no change. Apply at most $MAX_OPS ops.`;
 var refining = false;
-async function runAutoRefine(client, directory, global, opts = {}) {
+async function runAutoRefine(client, directory, global, project, opts = {}) {
   if (opts.enabled === false)
     return false;
   if (refining)
     return false;
-  const state = readRefineState(global);
-  const rows = readEvidence(global);
+  const state = readRefineState(project);
+  const rows = readEvidence(global).filter((r) => r.project === directory);
   if (!isRefineDue(rows, state, opts.minEvidence ?? AUTO_REFINE_MIN_EVIDENCE))
     return false;
   refining = true;
@@ -12674,7 +12695,7 @@ async function runAutoRefine(client, directory, global, opts = {}) {
       }
     });
     const watermark = rows.reduce((max, r) => r.ts > max ? r.ts : max, "");
-    writeRefineState(global, { lastAutoRefineAt: new Date().toISOString(), watermark });
+    writeRefineState(project, { lastAutoRefineAt: new Date().toISOString(), watermark });
     return true;
   } catch {
     return false;
@@ -12804,6 +12825,7 @@ function isPrematureStop(finish, sawToolCalls) {
 }
 var HarnessPlugin = async ({ directory, client }) => {
   const global = globalHarnessDir();
+  const project = projectHarnessDir(directory);
   const activity = new Map;
   const refineClient = {
     session: {
@@ -12897,19 +12919,19 @@ var HarnessPlugin = async ({ directory, client }) => {
         }
         appendEvidence(global, { ts: new Date().toISOString(), sessionID: id, kind: "session_idle", project: directory });
         activity.delete(id);
-        runAutoRefine(refineClient, directory, global, { enabled: AUTO_REFINE_ENABLED, minEvidence: AUTO_REFINE_MIN_EVIDENCE, maxOps: AUTO_REFINE_MAX_OPS });
+        runAutoRefine(refineClient, directory, global, project, { enabled: AUTO_REFINE_ENABLED, minEvidence: AUTO_REFINE_MIN_EVIDENCE, maxOps: AUTO_REFINE_MAX_OPS });
       } else if (event.type === "session.created") {
         appendEvidence(global, { ts: new Date().toISOString(), sessionID: id, kind: "session_created", project: directory });
       }
     },
     "experimental.chat.system.transform": async (_input, output) => {
-      const injection = buildInjection(loadState(global), "global");
+      const injection = buildInjection(loadMergedState(global, project), "project");
       if (injection)
         output.system.push(injection);
       output.system.push(buildContinuationNudge());
     },
     "experimental.session.compacting": async (_input, output) => {
-      output.context.push(...buildCompactionContext(loadState(global), "global"));
+      output.context.push(...buildCompactionContext(loadMergedState(global, project), "project"));
     },
     tool: {
       harness_refine: tool({
@@ -12920,12 +12942,12 @@ var HarnessPlugin = async ({ directory, client }) => {
         async execute(args) {
           const focus = args.focus;
           return `## Harness evidence (recent)
-${gatherEvidenceSummary(global, focus)}
+${gatherEvidenceSummary(global, focus, directory)}
 
 ## Current state
-${JSON.stringify(loadState(global), null, 2)}
+${JSON.stringify(loadMergedState(global, project), null, 2)}
 
-Assess candidates on frequency, cost, risk, stability, and existing coverage. If a candidate scores strong (>=0.6), propose it via harness_apply with kind=memory|spec|delete (use specKind=skill|subagent for spec writes) and the exact body. For new skills/agents, only if repeated friction justifies it. Otherwise report 'No change recommended'.`;
+Assess candidates on frequency, cost, risk, stability, and existing coverage. If a candidate scores strong (>=0.6), propose it via harness_apply with kind=memory|spec|delete (use specKind=skill|subagent for spec writes), scope=global for cross-project or scope=project for this repo, and the exact body. For new skills/agents, only if repeated friction justifies it. Otherwise report 'No change recommended'.`;
         }
       }),
       harness_apply: tool({
@@ -12944,7 +12966,7 @@ Assess candidates on frequency, cost, risk, stability, and existing coverage. If
         },
         async execute(args) {
           const ops = args.ops;
-          const { snapshotID, applied } = applyOps(global, ops);
+          const { snapshotID, applied } = applyOps(global, project, ops);
           return `Applied ${applied.length} op(s). Snapshot: ${snapshotID}
 Ops: ${applied.join(", ")}`;
         }
@@ -12953,9 +12975,9 @@ Ops: ${applied.join(", ")}`;
         description: "Show the current harness state: memory/spec counts, evidence totals, and snapshots.",
         args: {},
         async execute() {
-          const state = loadState(global);
+          const state = loadMergedState(global, project);
           const snapshots = listSnapshots(global);
-          const refine2 = readRefineState(global);
+          const refine2 = readRefineState(project);
           let update = "no check yet";
           try {
             if (fs5.existsSync(updateStateFile)) {
@@ -12965,6 +12987,7 @@ Ops: ${applied.join(", ")}`;
           } catch {}
           return `## Harness status
 global: ${global}
+project: ${project}
 memories: ${state.memories.length}
 specs: ${state.specs.length}
 evidence entries: ${readEvidence(global).length}
@@ -12977,8 +13000,10 @@ updates: ${update}`;
         description: "List harness snapshot ids for rollback.",
         args: {},
         async execute() {
-          const snapshots = listSnapshots(global);
-          return snapshots.length ? snapshots.join(`
+          const globalSnaps = listSnapshots(global);
+          const projectSnaps = listSnapshots(project);
+          const snaps = [...new Set([...globalSnaps, ...projectSnaps])];
+          return snaps.length ? snaps.join(`
 `) : "No snapshots yet.";
         }
       }),
@@ -12991,9 +13016,11 @@ updates: ${update}`;
           const id = args.id;
           try {
             rollback(global, id);
+            if (listSnapshots(project).includes(id))
+              rollback(project, id);
             return `Rolled back to snapshot ${id}`;
           } catch (e) {
-            const avail = listSnapshots(global);
+            const avail = [...new Set([...listSnapshots(global), ...listSnapshots(project)])];
             return `Rollback failed: ${e.message}. Available: ${avail.join(", ") || "none"}`;
           }
         }
