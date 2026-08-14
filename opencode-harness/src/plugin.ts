@@ -8,6 +8,11 @@ import { gatherEvidenceSummary, applyOps, type RefineOp } from "./refine";
 import { runAutoRefine, readRefineState, AUTO_REFINE_MIN_EVIDENCE, AUTO_REFINE_MAX_OPS, type AutoRefineClient } from "./autorefine";
 import { checkForUpdates, ownBundlePath, readVersionMarker } from "./updater";
 
+export type HarnessPluginOptions = {
+  /** Registered model (provider/modelID) used for the plugin's refiner work. */
+  model?: string;
+};
+
 export function looksLikeError(output: string | undefined, metadata?: Record<string, unknown> | null, tool?: string): boolean {
   if (tool === "bash") {
     const exit = metadata?.exit;
@@ -53,17 +58,18 @@ export function isPrematureStop(finish: string | undefined, sawToolCalls: boolea
   return finish === "stop" && sawToolCalls;
 }
 
-export const HarnessPlugin: Plugin = async ({ directory, client }) => {
+export const HarnessPlugin: Plugin = async ({ directory, client }, options) => {
   const global = globalHarnessDir();
   const project = projectHarnessDir(directory);
   const activity = new Map<string, SessionActivity>();
+  const pluginOptions = (options ?? {}) as HarnessPluginOptions;
 
   // The SDK client returns { data, error } shapes; adapt it to the AutoRefineClient contract
   // (create resolves to the session, promptAsync accepts { path, body }).
   const refineClient: AutoRefineClient = {
     session: {
       create: async (opts) => {
-        const res = await client.session.create({ query: opts.query, throwOnError: true });
+        const res = await client.session.create({ query: opts.query, body: opts.body, throwOnError: true });
         return { id: res.data.id };
       },
       promptAsync: (opts) => client.session.promptAsync(opts as Parameters<typeof client.session.promptAsync>[0]),
@@ -98,17 +104,23 @@ export const HarnessPlugin: Plugin = async ({ directory, client }) => {
   return {
     config: async (config) => {
       config.command = config.command ?? {};
+      config.agent = config.agent ?? {};
+      const model = (config.agent?.refiner?.model as string | undefined) || pluginOptions.model || "";
       if (!config.command["refine"]) {
-        config.command["refine"] = { description: "Run the Continual Harness refine loop over recent evidence", agent: "refiner", template: REFINE_TEMPLATE };
+        config.command["refine"] = { description: "Run the Continual Harness refine loop over recent evidence", agent: "refiner", model: model || undefined, template: REFINE_TEMPLATE };
+      } else if (model && !(config.command["refine"] as { model?: string }).model) {
+        (config.command["refine"] as { model?: string }).model = model;
       }
       if (!config.command["harness"]) {
-        config.command["harness"] = { description: "Inspect or manage the Continual Harness (status, history, rollback)", agent: "refiner", template: HARNESS_TEMPLATE };
+        config.command["harness"] = { description: "Inspect or manage the Continual Harness (status, history, rollback)", agent: "refiner", model: model || undefined, template: HARNESS_TEMPLATE };
+      } else if (model && !(config.command["harness"] as { model?: string }).model) {
+        (config.command["harness"] as { model?: string }).model = model;
       }
-      config.agent = config.agent ?? {};
       if (!config.agent["refiner"]) {
         config.agent["refiner"] = {
           description: "Runs the Continual Harness refine loop and harness management tools",
           mode: "subagent",
+          model: pluginOptions.model || undefined,
           permission: { edit: "deny", bash: "deny", skill: { "harness-refine": "allow" } } as unknown as Record<string, unknown>,
           prompt: "You are the refiner for the opencode Continual Harness. You analyze evidence, apply conservative refinements via the harness_* tools, and report results. You never edit files directly.",
         };
@@ -150,7 +162,7 @@ export const HarnessPlugin: Plugin = async ({ directory, client }) => {
         }
         appendEvidence(global, { ts: new Date().toISOString(), sessionID: id, kind: "session_idle", project: directory });
         activity.delete(id);
-        void runAutoRefine(refineClient, directory, global, project, { enabled: AUTO_REFINE_ENABLED, minEvidence: AUTO_REFINE_MIN_EVIDENCE, maxOps: AUTO_REFINE_MAX_OPS });
+        void runAutoRefine(refineClient, directory, global, project, { enabled: AUTO_REFINE_ENABLED, minEvidence: AUTO_REFINE_MIN_EVIDENCE, maxOps: AUTO_REFINE_MAX_OPS, parentID: id, model: pluginOptions.model });
       } else if (event.type === "session.created") {
         appendEvidence(global, { ts: new Date().toISOString(), sessionID: id, kind: "session_created", project: directory });
       }

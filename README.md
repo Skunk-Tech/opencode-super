@@ -121,6 +121,31 @@ All knobs are module constants in `opencode-harness/src/`. If you build from sou
 | `UPDATE_CHECK_HOURS` | `6` | Hours between update checks |
 | `UPDATE_REPO` | `Skunk-Tech/opencode-super` | Repository to check for updates |
 
+### Choose the model the plugin's work uses
+
+The harness's own work — the `refiner` subagent that runs `/refine`, `/harness`, and the automatic refine loop — uses your session's model by default. You can pin it to any model you have **registered** in your `opencode.json` providers.
+
+Pass it as a plugin option by writing the plugin entry in array form:
+
+```json
+{
+  "plugin": [["opencode-super@git+https://github.com/Skunk-Tech/opencode-super.git", { "model": "omni-deepseek/ds/deepseek-v4-flash" }]]
+}
+```
+
+Or set it the standard opencode way — configure the `refiner` agent's model directly (this wins over the plugin option):
+
+```json
+{
+  "plugin": ["opencode-super@git+https://github.com/Skunk-Tech/opencode-super.git"],
+  "agent": { "refiner": { "model": "anthropic/claude-sonnet-4-5" } }
+}
+```
+
+The model applies to the `refiner` agent and the `/refine` + `/harness` commands, and is forwarded to auto-refine sessions so the plugin's work uses your chosen model. Auto-refine sessions are created **nested under the session that triggered them**, matching the desktop app's built-in nested-session display.
+
+> **Note on the desktop app Settings GUI:** the opencode desktop Settings dialog currently has no plugin-settings panel, so this model is configured in `opencode.json` rather than through a settings checkbox. A native GUI picker for plugin settings would need an upstream opencode feature (a plugin settings panel); until then this config-file surface is the supported way to choose the model.
+
 ---
 
 ## Repository layout
@@ -128,7 +153,7 @@ All knobs are module constants in `opencode-harness/src/`. If you build from sou
 ```
 opencode-harness/          # the harness SOURCE (dev repo)
   src/                     #   plugin entry, evidence store, refine engine, updater
-  test/                    #   bun test suite (59 tests)
+  test/                    #   bun test suite (79 tests)
   scripts/                 #   build + install scripts
   assets/                  #   skill, command, and agent definitions
 .opencode/plugins/         # the INSTALL package (built, ready to load)
@@ -144,7 +169,7 @@ docs/superpowers/          # design specs and implementation plans
 ```bash
 cd opencode-harness
 bun install
-bun test              # run the suite (59 tests)
+bun test              # run the suite (79 tests)
 bun run build         # produces dist/harness.js with all deps inlined
 bun run install:harness  # install into ~/.config/opencode/ (dev use)
 ```

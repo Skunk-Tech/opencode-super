@@ -41,6 +41,33 @@ test("HarnessPlugin config hook registers refine/harness commands and refiner ag
   expect(config.agent["refiner"].permission.skill["harness-refine"]).toBe("allow");
 });
 
+test("HarnessPlugin applies a model from plugin options to commands and refiner agent", async () => {
+  const hooks = await HarnessPlugin({ directory: process.cwd() } as any, { model: "omni-deepseek/ds/deepseek-v4-flash" });
+  const config: any = { command: {}, agent: {} };
+  await hooks.config?.(config);
+  expect(config.command["refine"].model).toBe("omni-deepseek/ds/deepseek-v4-flash");
+  expect(config.command["harness"].model).toBe("omni-deepseek/ds/deepseek-v4-flash");
+  expect(config.agent["refiner"].model).toBe("omni-deepseek/ds/deepseek-v4-flash");
+});
+
+test("HarnessPlugin does not clobber a user-set agent.refiner.model", async () => {
+  const hooks = await HarnessPlugin({ directory: process.cwd() } as any, { model: "omni-deepseek/ds/deepseek-v4-flash" });
+  const config: any = { command: {}, agent: { refiner: { model: "anthropic/claude-sonnet-4-5" } } };
+  await hooks.config?.(config);
+  expect(config.agent["refiner"].model).toBe("anthropic/claude-sonnet-4-5");
+  expect(config.command["refine"].model).toBe("anthropic/claude-sonnet-4-5");
+  expect(config.command["harness"].model).toBe("anthropic/claude-sonnet-4-5");
+});
+
+test("HarnessPlugin leaves commands/agent model undefined when no model configured", async () => {
+  const hooks = await HarnessPlugin({ directory: process.cwd() } as any);
+  const config: any = { command: {}, agent: {} };
+  await hooks.config?.(config);
+  expect(config.command["refine"].model).toBeUndefined();
+  expect(config.command["harness"].model).toBeUndefined();
+  expect(config.agent["refiner"].model).toBeUndefined();
+});
+
 import { AUTO_REFINE_ENABLED } from "../src/plugin";
 
 test("AUTO_REFINE_ENABLED constant defaults true", () => {

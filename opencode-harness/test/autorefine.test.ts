@@ -3,7 +3,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import {
-  readRefineState, writeRefineState, newEvidenceSince, isRefineDue, runAutoRefine,
+  readRefineState, writeRefineState, newEvidenceSince, isRefineDue, runAutoRefine, parseModelRef,
 } from "../src/autorefine";
 import type { EvidenceEntry } from "../src/store";
 
@@ -50,6 +50,17 @@ test("writeRefineState persists and readRefineState round-trips", () => {
   expect(readRefineState(dir)).toEqual({ lastAutoRefineAt: "2026-01-01T00:00:00.000Z", watermark: "2026-01-01T00:00:00.000Z" });
 });
 
+test("parseModelRef splits provider from model id, handling slashes in the model id", () => {
+  expect(parseModelRef("omni-deepseek/ds/deepseek-v4-flash")).toEqual({ providerID: "omni-deepseek", modelID: "ds/deepseek-v4-flash" });
+  expect(parseModelRef("anthropic/claude-sonnet-4-5")).toEqual({ providerID: "anthropic", modelID: "claude-sonnet-4-5" });
+});
+
+test("parseModelRef treats a bare model id (no slash) as provider-less", () => {
+  expect(parseModelRef("deepseek-v4-flash")).toEqual({ providerID: "", modelID: "deepseek-v4-flash" });
+  expect(parseModelRef(undefined)).toBeUndefined();
+  expect(parseModelRef("")).toBeUndefined();
+});
+
 test("runAutoRefine creates a refiner session and prompts it when due", async () => {
   const global = tmpDir();
   const project = tmpDir();
@@ -75,6 +86,60 @@ test("runAutoRefine creates a refiner session and prompts it when due", async ()
   const state = readRefineState(project);
   expect(state.watermark).toBe("2026-01-05T00:00:00.000Z");
   expect(state.lastAutoRefineAt).toBeDefined();
+});
+
+test("runAutoRefine passes parentID to session.create and model to promptAsync", async () => {
+  const global = tmpDir();
+  const project = tmpDir();
+  writeRefineState(project, {});
+  const rows = Array.from({ length: 5 }, (_, i) => row(`2026-01-0${i + 1}T00:00:00.000Z`));
+  fs.writeFileSync(path.join(global, "evidence.jsonl"), rows.map((r) => JSON.stringify(r)).join("\n") + "\n", "utf8");
+  const client = {
+    session: {
+      async create(opts: any) {
+        expect(opts.body).toEqual({ parentID: "parent-session" });
+        return { id: "auto-session" };
+      },
+      async promptAsync(opts: any) {
+        expect(opts.body.model).toEqual({ providerID: "omni-deepseek", modelID: "ds/deepseek-v4-flash" });
+        return {};
+      },
+    },
+  };
+  const ok = await runAutoRefine(client as any, "/work", global, project, { parentID: "parent-session", model: "omni-deepseek/ds/deepseek-v4-flash" });
+  expect(ok).toBe(true);
+});
+
+test("runAutoRefine omits parentID and model when absent", async () => {
+  const global = tmpDir();
+  const project = tmpDir();
+  writeRefineState(project, {});
+  const rows = Array.from({ length: 5 }, (_, i) => row(`2026-01-0${i + 1}T00:00:00.000Z`));
+  fs.writeFileSync(path.join(global, "evidence.jsonl"), rows.map((r) => JSON.stringify(r)).join("\n") + "\n", "utf8");
+  const client = {
+    session: {
+      async create(opts: any) { expect(opts.body).toBeUndefined(); return { id: "auto-session" }; },
+      async promptAsync(opts: any) { expect(opts.body.model).toBeUndefined(); return {}; },
+    },
+  };
+  const ok = await runAutoRefine(client as any, "/work", global, project);
+  expect(ok).toBe(true);
+});
+
+test("runAutoRefine does not attach a model ref without a provider prefix", async () => {
+  const global = tmpDir();
+  const project = tmpDir();
+  writeRefineState(project, {});
+  const rows = Array.from({ length: 5 }, (_, i) => row(`2026-01-0${i + 1}T00:00:00.000Z`));
+  fs.writeFileSync(path.join(global, "evidence.jsonl"), rows.map((r) => JSON.stringify(r)).join("\n") + "\n", "utf8");
+  const client = {
+    session: {
+      async create(opts: any) { expect(opts.body).toBeUndefined(); return { id: "auto-session" }; },
+      async promptAsync(opts: any) { expect(opts.body.model).toBeUndefined(); return {}; },
+    },
+  };
+  const ok = await runAutoRefine(client as any, "/work", global, project, { model: "deepseek-v4-flash" });
+  expect(ok).toBe(true);
 });
 
 test("runAutoRefine ignores evidence from other projects", async () => {

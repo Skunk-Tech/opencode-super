@@ -9,7 +9,7 @@ var __export = (target, all) => {
     });
 };
 
-// opencode-harness/node_modules/zod/v4/classic/external.js
+// node_modules/zod/v4/classic/external.js
 var exports_external = {};
 __export(exports_external, {
   xid: () => xid2,
@@ -239,7 +239,7 @@ __export(exports_external, {
   $brand: () => $brand
 });
 
-// opencode-harness/node_modules/zod/v4/core/index.js
+// node_modules/zod/v4/core/index.js
 var exports_core2 = {};
 __export(exports_core2, {
   version: () => version,
@@ -503,7 +503,7 @@ __export(exports_core2, {
   $ZodAny: () => $ZodAny
 });
 
-// opencode-harness/node_modules/zod/v4/core/core.js
+// node_modules/zod/v4/core/core.js
 var NEVER = Object.freeze({
   status: "aborted"
 });
@@ -570,7 +570,7 @@ function config(newConfig) {
     Object.assign(globalConfig, newConfig);
   return globalConfig;
 }
-// opencode-harness/node_modules/zod/v4/core/util.js
+// node_modules/zod/v4/core/util.js
 var exports_util = {};
 __export(exports_util, {
   unwrapMessage: () => unwrapMessage,
@@ -1199,7 +1199,7 @@ class Class {
   constructor(..._args) {}
 }
 
-// opencode-harness/node_modules/zod/v4/core/errors.js
+// node_modules/zod/v4/core/errors.js
 var initializer = (inst, def) => {
   inst.name = "$ZodError";
   Object.defineProperty(inst, "_zod", {
@@ -1342,7 +1342,7 @@ function prettifyError(error) {
 `);
 }
 
-// opencode-harness/node_modules/zod/v4/core/parse.js
+// node_modules/zod/v4/core/parse.js
 var _parse = (_Err) => (schema, value, _ctx, _params) => {
   const ctx = _ctx ? Object.assign(_ctx, { async: false }) : { async: false };
   const result = schema._zod.run({ value, issues: [] }, ctx);
@@ -1429,7 +1429,7 @@ var _safeDecodeAsync = (_Err) => async (schema, value, _ctx) => {
   return _safeParseAsync(_Err)(schema, value, _ctx);
 };
 var safeDecodeAsync = /* @__PURE__ */ _safeDecodeAsync($ZodRealError);
-// opencode-harness/node_modules/zod/v4/core/regexes.js
+// node_modules/zod/v4/core/regexes.js
 var exports_regexes = {};
 __export(exports_regexes, {
   xid: () => xid,
@@ -1581,7 +1581,7 @@ var sha512_hex = /^[0-9a-fA-F]{128}$/;
 var sha512_base64 = /* @__PURE__ */ fixedBase64(86, "==");
 var sha512_base64url = /* @__PURE__ */ fixedBase64url(86);
 
-// opencode-harness/node_modules/zod/v4/core/checks.js
+// node_modules/zod/v4/core/checks.js
 var $ZodCheck = /* @__PURE__ */ $constructor("$ZodCheck", (inst, def) => {
   var _a;
   inst._zod ?? (inst._zod = {});
@@ -2122,7 +2122,7 @@ var $ZodCheckOverwrite = /* @__PURE__ */ $constructor("$ZodCheckOverwrite", (ins
   };
 });
 
-// opencode-harness/node_modules/zod/v4/core/doc.js
+// node_modules/zod/v4/core/doc.js
 class Doc {
   constructor(args = []) {
     this.content = [];
@@ -2160,14 +2160,14 @@ class Doc {
   }
 }
 
-// opencode-harness/node_modules/zod/v4/core/versions.js
+// node_modules/zod/v4/core/versions.js
 var version = {
   major: 4,
   minor: 1,
   patch: 8
 };
 
-// opencode-harness/node_modules/zod/v4/core/schemas.js
+// node_modules/zod/v4/core/schemas.js
 var $ZodType = /* @__PURE__ */ $constructor("$ZodType", (inst, def) => {
   var _a;
   inst ?? (inst = {});
@@ -3990,7 +3990,7 @@ function handleRefineResult(result, payload, input, inst) {
     payload.issues.push(issue(_iss));
   }
 }
-// opencode-harness/node_modules/zod/v4/locales/index.js
+// node_modules/zod/v4/locales/index.js
 var exports_locales = {};
 __export(exports_locales, {
   zhTW: () => zh_TW_default,
@@ -4041,7 +4041,7 @@ __export(exports_locales, {
   ar: () => ar_default
 });
 
-// opencode-harness/node_modules/zod/v4/locales/ar.js
+// node_modules/zod/v4/locales/ar.js
 var error = () => {
   const Sizable = {
     string: { unit: "حرف", verb: "أن يحوي" },
@@ -4157,7 +4157,7 @@ function ar_default() {
     localeError: error()
   };
 }
-// opencode-harness/node_modules/zod/v4/locales/az.js
+// node_modules/zod/v4/locales/az.js
 var error2 = () => {
   const Sizable = {
     string: { unit: "simvol", verb: "olmalıdır" },
@@ -4272,7 +4272,7 @@ function az_default() {
     localeError: error2()
   };
 }
-// opencode-harness/node_modules/zod/v4/locales/be.js
+// node_modules/zod/v4/locales/be.js
 function getBelarusianPlural(count, one, few, many) {
   const absCount = Math.abs(count);
   const lastDigit = absCount % 10;
@@ -4436,7 +4436,7 @@ function be_default() {
     localeError: error3()
   };
 }
-// opencode-harness/node_modules/zod/v4/locales/ca.js
+// node_modules/zod/v4/locales/ca.js
 var error4 = () => {
   const Sizable = {
     string: { unit: "caràcters", verb: "contenir" },
@@ -4553,7 +4553,7 @@ function ca_default() {
     localeError: error4()
   };
 }
-// opencode-harness/node_modules/zod/v4/locales/cs.js
+// node_modules/zod/v4/locales/cs.js
 var error5 = () => {
   const Sizable = {
     string: { unit: "znaků", verb: "mít" },
@@ -4688,7 +4688,7 @@ function cs_default() {
     localeError: error5()
   };
 }
-// opencode-harness/node_modules/zod/v4/locales/da.js
+// node_modules/zod/v4/locales/da.js
 var error6 = () => {
   const Sizable = {
     string: { unit: "tegn", verb: "havde" },
@@ -4819,7 +4819,7 @@ function da_default() {
     localeError: error6()
   };
 }
-// opencode-harness/node_modules/zod/v4/locales/de.js
+// node_modules/zod/v4/locales/de.js
 var error7 = () => {
   const Sizable = {
     string: { unit: "Zeichen", verb: "zu haben" },
@@ -4935,7 +4935,7 @@ function de_default() {
     localeError: error7()
   };
 }
-// opencode-harness/node_modules/zod/v4/locales/en.js
+// node_modules/zod/v4/locales/en.js
 var parsedType = (data) => {
   const t = typeof data;
   switch (t) {
@@ -5052,7 +5052,7 @@ function en_default() {
     localeError: error8()
   };
 }
-// opencode-harness/node_modules/zod/v4/locales/eo.js
+// node_modules/zod/v4/locales/eo.js
 var parsedType2 = (data) => {
   const t = typeof data;
   switch (t) {
@@ -5168,7 +5168,7 @@ function eo_default() {
     localeError: error9()
   };
 }
-// opencode-harness/node_modules/zod/v4/locales/es.js
+// node_modules/zod/v4/locales/es.js
 var error10 = () => {
   const Sizable = {
     string: { unit: "caracteres", verb: "tener" },
@@ -5316,7 +5316,7 @@ function es_default() {
     localeError: error10()
   };
 }
-// opencode-harness/node_modules/zod/v4/locales/fa.js
+// node_modules/zod/v4/locales/fa.js
 var error11 = () => {
   const Sizable = {
     string: { unit: "کاراکتر", verb: "داشته باشد" },
@@ -5438,7 +5438,7 @@ function fa_default() {
     localeError: error11()
   };
 }
-// opencode-harness/node_modules/zod/v4/locales/fi.js
+// node_modules/zod/v4/locales/fi.js
 var error12 = () => {
   const Sizable = {
     string: { unit: "merkkiä", subject: "merkkijonon" },
@@ -5560,7 +5560,7 @@ function fi_default() {
     localeError: error12()
   };
 }
-// opencode-harness/node_modules/zod/v4/locales/fr.js
+// node_modules/zod/v4/locales/fr.js
 var error13 = () => {
   const Sizable = {
     string: { unit: "caractères", verb: "avoir" },
@@ -5676,7 +5676,7 @@ function fr_default() {
     localeError: error13()
   };
 }
-// opencode-harness/node_modules/zod/v4/locales/fr-CA.js
+// node_modules/zod/v4/locales/fr-CA.js
 var error14 = () => {
   const Sizable = {
     string: { unit: "caractères", verb: "avoir" },
@@ -5793,7 +5793,7 @@ function fr_CA_default() {
     localeError: error14()
   };
 }
-// opencode-harness/node_modules/zod/v4/locales/he.js
+// node_modules/zod/v4/locales/he.js
 var error15 = () => {
   const Sizable = {
     string: { unit: "אותיות", verb: "לכלול" },
@@ -5909,7 +5909,7 @@ function he_default() {
     localeError: error15()
   };
 }
-// opencode-harness/node_modules/zod/v4/locales/hu.js
+// node_modules/zod/v4/locales/hu.js
 var error16 = () => {
   const Sizable = {
     string: { unit: "karakter", verb: "legyen" },
@@ -6025,7 +6025,7 @@ function hu_default() {
     localeError: error16()
   };
 }
-// opencode-harness/node_modules/zod/v4/locales/id.js
+// node_modules/zod/v4/locales/id.js
 var error17 = () => {
   const Sizable = {
     string: { unit: "karakter", verb: "memiliki" },
@@ -6141,7 +6141,7 @@ function id_default() {
     localeError: error17()
   };
 }
-// opencode-harness/node_modules/zod/v4/locales/is.js
+// node_modules/zod/v4/locales/is.js
 var parsedType3 = (data) => {
   const t = typeof data;
   switch (t) {
@@ -6258,7 +6258,7 @@ function is_default() {
     localeError: error18()
   };
 }
-// opencode-harness/node_modules/zod/v4/locales/it.js
+// node_modules/zod/v4/locales/it.js
 var error19 = () => {
   const Sizable = {
     string: { unit: "caratteri", verb: "avere" },
@@ -6374,7 +6374,7 @@ function it_default() {
     localeError: error19()
   };
 }
-// opencode-harness/node_modules/zod/v4/locales/ja.js
+// node_modules/zod/v4/locales/ja.js
 var error20 = () => {
   const Sizable = {
     string: { unit: "文字", verb: "である" },
@@ -6489,7 +6489,7 @@ function ja_default() {
     localeError: error20()
   };
 }
-// opencode-harness/node_modules/zod/v4/locales/ka.js
+// node_modules/zod/v4/locales/ka.js
 var parsedType4 = (data) => {
   const t = typeof data;
   switch (t) {
@@ -6614,7 +6614,7 @@ function ka_default() {
     localeError: error21()
   };
 }
-// opencode-harness/node_modules/zod/v4/locales/km.js
+// node_modules/zod/v4/locales/km.js
 var error22 = () => {
   const Sizable = {
     string: { unit: "តួអក្សរ", verb: "គួរមាន" },
@@ -6732,11 +6732,11 @@ function km_default() {
   };
 }
 
-// opencode-harness/node_modules/zod/v4/locales/kh.js
+// node_modules/zod/v4/locales/kh.js
 function kh_default() {
   return km_default();
 }
-// opencode-harness/node_modules/zod/v4/locales/ko.js
+// node_modules/zod/v4/locales/ko.js
 var error23 = () => {
   const Sizable = {
     string: { unit: "문자", verb: "to have" },
@@ -6857,7 +6857,7 @@ function ko_default() {
     localeError: error23()
   };
 }
-// opencode-harness/node_modules/zod/v4/locales/lt.js
+// node_modules/zod/v4/locales/lt.js
 var parsedType5 = (data) => {
   const t = typeof data;
   return parsedTypeFromType(t, data);
@@ -7086,7 +7086,7 @@ function lt_default() {
     localeError: error24()
   };
 }
-// opencode-harness/node_modules/zod/v4/locales/mk.js
+// node_modules/zod/v4/locales/mk.js
 var error25 = () => {
   const Sizable = {
     string: { unit: "знаци", verb: "да имаат" },
@@ -7203,7 +7203,7 @@ function mk_default() {
     localeError: error25()
   };
 }
-// opencode-harness/node_modules/zod/v4/locales/ms.js
+// node_modules/zod/v4/locales/ms.js
 var error26 = () => {
   const Sizable = {
     string: { unit: "aksara", verb: "mempunyai" },
@@ -7319,7 +7319,7 @@ function ms_default() {
     localeError: error26()
   };
 }
-// opencode-harness/node_modules/zod/v4/locales/nl.js
+// node_modules/zod/v4/locales/nl.js
 var error27 = () => {
   const Sizable = {
     string: { unit: "tekens" },
@@ -7436,7 +7436,7 @@ function nl_default() {
     localeError: error27()
   };
 }
-// opencode-harness/node_modules/zod/v4/locales/no.js
+// node_modules/zod/v4/locales/no.js
 var error28 = () => {
   const Sizable = {
     string: { unit: "tegn", verb: "å ha" },
@@ -7552,7 +7552,7 @@ function no_default() {
     localeError: error28()
   };
 }
-// opencode-harness/node_modules/zod/v4/locales/ota.js
+// node_modules/zod/v4/locales/ota.js
 var error29 = () => {
   const Sizable = {
     string: { unit: "harf", verb: "olmalıdır" },
@@ -7668,7 +7668,7 @@ function ota_default() {
     localeError: error29()
   };
 }
-// opencode-harness/node_modules/zod/v4/locales/ps.js
+// node_modules/zod/v4/locales/ps.js
 var error30 = () => {
   const Sizable = {
     string: { unit: "توکي", verb: "ولري" },
@@ -7790,7 +7790,7 @@ function ps_default() {
     localeError: error30()
   };
 }
-// opencode-harness/node_modules/zod/v4/locales/pl.js
+// node_modules/zod/v4/locales/pl.js
 var error31 = () => {
   const Sizable = {
     string: { unit: "znaków", verb: "mieć" },
@@ -7907,7 +7907,7 @@ function pl_default() {
     localeError: error31()
   };
 }
-// opencode-harness/node_modules/zod/v4/locales/pt.js
+// node_modules/zod/v4/locales/pt.js
 var error32 = () => {
   const Sizable = {
     string: { unit: "caracteres", verb: "ter" },
@@ -8023,7 +8023,7 @@ function pt_default() {
     localeError: error32()
   };
 }
-// opencode-harness/node_modules/zod/v4/locales/ru.js
+// node_modules/zod/v4/locales/ru.js
 function getRussianPlural(count, one, few, many) {
   const absCount = Math.abs(count);
   const lastDigit = absCount % 10;
@@ -8187,7 +8187,7 @@ function ru_default() {
     localeError: error33()
   };
 }
-// opencode-harness/node_modules/zod/v4/locales/sl.js
+// node_modules/zod/v4/locales/sl.js
 var error34 = () => {
   const Sizable = {
     string: { unit: "znakov", verb: "imeti" },
@@ -8304,7 +8304,7 @@ function sl_default() {
     localeError: error34()
   };
 }
-// opencode-harness/node_modules/zod/v4/locales/sv.js
+// node_modules/zod/v4/locales/sv.js
 var error35 = () => {
   const Sizable = {
     string: { unit: "tecken", verb: "att ha" },
@@ -8422,7 +8422,7 @@ function sv_default() {
     localeError: error35()
   };
 }
-// opencode-harness/node_modules/zod/v4/locales/ta.js
+// node_modules/zod/v4/locales/ta.js
 var error36 = () => {
   const Sizable = {
     string: { unit: "எழுத்துக்கள்", verb: "கொண்டிருக்க வேண்டும்" },
@@ -8539,7 +8539,7 @@ function ta_default() {
     localeError: error36()
   };
 }
-// opencode-harness/node_modules/zod/v4/locales/th.js
+// node_modules/zod/v4/locales/th.js
 var error37 = () => {
   const Sizable = {
     string: { unit: "ตัวอักษร", verb: "ควรมี" },
@@ -8656,7 +8656,7 @@ function th_default() {
     localeError: error37()
   };
 }
-// opencode-harness/node_modules/zod/v4/locales/tr.js
+// node_modules/zod/v4/locales/tr.js
 var parsedType6 = (data) => {
   const t = typeof data;
   switch (t) {
@@ -8771,7 +8771,7 @@ function tr_default() {
     localeError: error38()
   };
 }
-// opencode-harness/node_modules/zod/v4/locales/uk.js
+// node_modules/zod/v4/locales/uk.js
 var error39 = () => {
   const Sizable = {
     string: { unit: "символів", verb: "матиме" },
@@ -8888,11 +8888,11 @@ function uk_default() {
   };
 }
 
-// opencode-harness/node_modules/zod/v4/locales/ua.js
+// node_modules/zod/v4/locales/ua.js
 function ua_default() {
   return uk_default();
 }
-// opencode-harness/node_modules/zod/v4/locales/ur.js
+// node_modules/zod/v4/locales/ur.js
 var error40 = () => {
   const Sizable = {
     string: { unit: "حروف", verb: "ہونا" },
@@ -9009,7 +9009,7 @@ function ur_default() {
     localeError: error40()
   };
 }
-// opencode-harness/node_modules/zod/v4/locales/vi.js
+// node_modules/zod/v4/locales/vi.js
 var error41 = () => {
   const Sizable = {
     string: { unit: "ký tự", verb: "có" },
@@ -9125,7 +9125,7 @@ function vi_default() {
     localeError: error41()
   };
 }
-// opencode-harness/node_modules/zod/v4/locales/zh-CN.js
+// node_modules/zod/v4/locales/zh-CN.js
 var error42 = () => {
   const Sizable = {
     string: { unit: "字符", verb: "包含" },
@@ -9241,7 +9241,7 @@ function zh_CN_default() {
     localeError: error42()
   };
 }
-// opencode-harness/node_modules/zod/v4/locales/zh-TW.js
+// node_modules/zod/v4/locales/zh-TW.js
 var error43 = () => {
   const Sizable = {
     string: { unit: "字元", verb: "擁有" },
@@ -9358,7 +9358,7 @@ function zh_TW_default() {
     localeError: error43()
   };
 }
-// opencode-harness/node_modules/zod/v4/locales/yo.js
+// node_modules/zod/v4/locales/yo.js
 var error44 = () => {
   const Sizable = {
     string: { unit: "àmi", verb: "ní" },
@@ -9473,7 +9473,7 @@ function yo_default() {
     localeError: error44()
   };
 }
-// opencode-harness/node_modules/zod/v4/core/registries.js
+// node_modules/zod/v4/core/registries.js
 var $output = Symbol("ZodOutput");
 var $input = Symbol("ZodInput");
 
@@ -9524,7 +9524,7 @@ function registry() {
   return new $ZodRegistry;
 }
 var globalRegistry = /* @__PURE__ */ registry();
-// opencode-harness/node_modules/zod/v4/core/api.js
+// node_modules/zod/v4/core/api.js
 function _string(Class2, params) {
   return new Class2({
     type: "string",
@@ -10402,7 +10402,7 @@ function _stringFormat(Class2, format, fnOrRegex, _params = {}) {
   const inst = new Class2(def);
   return inst;
 }
-// opencode-harness/node_modules/zod/v4/core/to-json-schema.js
+// node_modules/zod/v4/core/to-json-schema.js
 class JSONSchemaGenerator {
   constructor(params) {
     this.counter = 0;
@@ -11206,9 +11206,9 @@ function isTransforming(_schema, _ctx) {
   }
   throw new Error(`Unknown schema type: ${def.type}`);
 }
-// opencode-harness/node_modules/zod/v4/core/json-schema.js
+// node_modules/zod/v4/core/json-schema.js
 var exports_json_schema = {};
-// opencode-harness/node_modules/zod/v4/classic/iso.js
+// node_modules/zod/v4/classic/iso.js
 var exports_iso = {};
 __export(exports_iso, {
   time: () => time2,
@@ -11249,7 +11249,7 @@ function duration2(params) {
   return _isoDuration(ZodISODuration, params);
 }
 
-// opencode-harness/node_modules/zod/v4/classic/errors.js
+// node_modules/zod/v4/classic/errors.js
 var initializer2 = (inst, issues) => {
   $ZodError.init(inst, issues);
   inst.name = "ZodError";
@@ -11284,7 +11284,7 @@ var ZodRealError = $constructor("ZodError", initializer2, {
   Parent: Error
 });
 
-// opencode-harness/node_modules/zod/v4/classic/parse.js
+// node_modules/zod/v4/classic/parse.js
 var parse3 = /* @__PURE__ */ _parse(ZodRealError);
 var parseAsync2 = /* @__PURE__ */ _parseAsync(ZodRealError);
 var safeParse2 = /* @__PURE__ */ _safeParse(ZodRealError);
@@ -11298,7 +11298,7 @@ var safeDecode2 = /* @__PURE__ */ _safeDecode(ZodRealError);
 var safeEncodeAsync2 = /* @__PURE__ */ _safeEncodeAsync(ZodRealError);
 var safeDecodeAsync2 = /* @__PURE__ */ _safeDecodeAsync(ZodRealError);
 
-// opencode-harness/node_modules/zod/v4/classic/schemas.js
+// node_modules/zod/v4/classic/schemas.js
 var ZodType = /* @__PURE__ */ $constructor("ZodType", (inst, def) => {
   $ZodType.init(inst, def);
   inst.def = def;
@@ -12273,7 +12273,7 @@ function json(params) {
 function preprocess(fn, schema) {
   return pipe(transform(fn), schema);
 }
-// opencode-harness/node_modules/zod/v4/classic/compat.js
+// node_modules/zod/v4/classic/compat.js
 var ZodIssueCode = {
   invalid_type: "invalid_type",
   too_big: "too_big",
@@ -12297,7 +12297,7 @@ function getErrorMap() {
 }
 var ZodFirstPartyTypeKind;
 (function(ZodFirstPartyTypeKind2) {})(ZodFirstPartyTypeKind || (ZodFirstPartyTypeKind = {}));
-// opencode-harness/node_modules/zod/v4/classic/coerce.js
+// node_modules/zod/v4/classic/coerce.js
 var exports_coerce = {};
 __export(exports_coerce, {
   string: () => string3,
@@ -12322,18 +12322,18 @@ function date4(params) {
   return _coercedDate(ZodDate, params);
 }
 
-// opencode-harness/node_modules/zod/v4/classic/external.js
+// node_modules/zod/v4/classic/external.js
 config(en_default());
-// opencode-harness/node_modules/@opencode-ai/plugin/dist/tool.js
+// node_modules/@opencode-ai/plugin/dist/tool.js
 function tool(input) {
   return input;
 }
 tool.schema = exports_external;
-// opencode-harness/src/plugin.ts
+// src/plugin.ts
 import fs5 from "fs";
 import path5 from "path";
 
-// opencode-harness/src/paths.ts
+// src/paths.ts
 import path from "path";
 import os from "os";
 import fs from "fs";
@@ -12348,7 +12348,7 @@ function ensureDir(dir) {
   return dir;
 }
 
-// opencode-harness/src/store.ts
+// src/store.ts
 import fs2 from "fs";
 import path2 from "path";
 var TRUNCATE_ARGS = 200;
@@ -12541,7 +12541,7 @@ function rollback(dir, id) {
   }
 }
 
-// opencode-harness/src/inject.ts
+// src/inject.ts
 function filterByScope(state, scope) {
   return {
     ...state,
@@ -12582,7 +12582,7 @@ Prefer to complete your work rather than stop early. If a task is unfinished, co
 </harness-continuation>`;
 }
 
-// opencode-harness/src/refine.ts
+// src/refine.ts
 function gatherEvidenceSummary(dir, focus, project) {
   const rows = readEvidence(dir);
   const scoped = project ? rows.filter((r) => r.project === project) : rows;
@@ -12644,7 +12644,7 @@ function applyOps(global, project, ops) {
   return { snapshotID, applied };
 }
 
-// opencode-harness/src/autorefine.ts
+// src/autorefine.ts
 import fs3 from "fs";
 import path3 from "path";
 var AUTO_REFINE_MIN_EVIDENCE = 5;
@@ -12674,6 +12674,14 @@ function newEvidenceSince(rows, watermark) {
 function isRefineDue(rows, state, minNew = AUTO_REFINE_MIN_EVIDENCE) {
   return newEvidenceSince(rows, state.watermark).length >= minNew;
 }
+function parseModelRef(model) {
+  if (!model)
+    return;
+  const idx = model.indexOf("/");
+  if (idx <= 0)
+    return { providerID: "", modelID: model };
+  return { providerID: model.slice(0, idx), modelID: model.slice(idx + 1) };
+}
 var REFINE_PROMPT = `Run the harness refine workflow (load the \`harness-refine\` skill) and apply evidence-backed refinements. Be conservative: weak evidence means no change. Apply at most $MAX_OPS ops.`;
 var refining = false;
 async function runAutoRefine(client, directory, global, project, opts = {}) {
@@ -12687,14 +12695,19 @@ async function runAutoRefine(client, directory, global, project, opts = {}) {
     return false;
   refining = true;
   try {
-    const session = await client.session.create({ query: { directory } });
-    await client.session.promptAsync({
-      path: { id: session.id },
-      body: {
-        agent: "refiner",
-        parts: [{ type: "text", text: REFINE_PROMPT.replace("$MAX_OPS", String(opts.maxOps ?? AUTO_REFINE_MAX_OPS)) }]
-      }
+    const session = await client.session.create({
+      query: { directory },
+      body: opts.parentID ? { parentID: opts.parentID } : undefined
     });
+    const ref = parseModelRef(opts.model);
+    const body = {
+      agent: "refiner",
+      parts: [{ type: "text", text: REFINE_PROMPT.replace("$MAX_OPS", String(opts.maxOps ?? AUTO_REFINE_MAX_OPS)) }]
+    };
+    if (ref && ref.providerID) {
+      body.model = { providerID: ref.providerID, modelID: ref.modelID };
+    }
+    await client.session.promptAsync({ path: { id: session.id }, body });
     const watermark = rows.reduce((max, r) => r.ts > max ? r.ts : max, "");
     writeRefineState(project, { lastAutoRefineAt: new Date().toISOString(), watermark });
     return true;
@@ -12705,7 +12718,7 @@ async function runAutoRefine(client, directory, global, project, opts = {}) {
   }
 }
 
-// opencode-harness/src/updater.ts
+// src/updater.ts
 import fs4 from "fs";
 import path4 from "path";
 import { fileURLToPath } from "url";
@@ -12786,7 +12799,7 @@ async function checkForUpdates(ownPath, repo, opts = {}) {
   }
 }
 
-// opencode-harness/src/plugin.ts
+// src/plugin.ts
 function looksLikeError(output, metadata, tool3) {
   if (tool3 === "bash") {
     const exit = metadata?.exit;
@@ -12824,14 +12837,15 @@ var UPDATE_REPO = "Skunk-Tech/opencode-super";
 function isPrematureStop(finish, sawToolCalls) {
   return finish === "stop" && sawToolCalls;
 }
-var HarnessPlugin = async ({ directory, client }) => {
+var HarnessPlugin = async ({ directory, client }, options) => {
   const global = globalHarnessDir();
   const project = projectHarnessDir(directory);
   const activity = new Map;
+  const pluginOptions = options ?? {};
   const refineClient = {
     session: {
       create: async (opts) => {
-        const res = await client.session.create({ query: opts.query, throwOnError: true });
+        const res = await client.session.create({ query: opts.query, body: opts.body, throwOnError: true });
         return { id: res.data.id };
       },
       promptAsync: (opts) => client.session.promptAsync(opts)
@@ -12866,17 +12880,23 @@ var HarnessPlugin = async ({ directory, client }) => {
   return {
     config: async (config2) => {
       config2.command = config2.command ?? {};
+      config2.agent = config2.agent ?? {};
+      const model = config2.agent?.refiner?.model || pluginOptions.model || "";
       if (!config2.command["refine"]) {
-        config2.command["refine"] = { description: "Run the Continual Harness refine loop over recent evidence", agent: "refiner", template: REFINE_TEMPLATE };
+        config2.command["refine"] = { description: "Run the Continual Harness refine loop over recent evidence", agent: "refiner", model: model || undefined, template: REFINE_TEMPLATE };
+      } else if (model && !config2.command["refine"].model) {
+        config2.command["refine"].model = model;
       }
       if (!config2.command["harness"]) {
-        config2.command["harness"] = { description: "Inspect or manage the Continual Harness (status, history, rollback)", agent: "refiner", template: HARNESS_TEMPLATE };
+        config2.command["harness"] = { description: "Inspect or manage the Continual Harness (status, history, rollback)", agent: "refiner", model: model || undefined, template: HARNESS_TEMPLATE };
+      } else if (model && !config2.command["harness"].model) {
+        config2.command["harness"].model = model;
       }
-      config2.agent = config2.agent ?? {};
       if (!config2.agent["refiner"]) {
         config2.agent["refiner"] = {
           description: "Runs the Continual Harness refine loop and harness management tools",
           mode: "subagent",
+          model: pluginOptions.model || undefined,
           permission: { edit: "deny", bash: "deny", skill: { "harness-refine": "allow" } },
           prompt: "You are the refiner for the opencode Continual Harness. You analyze evidence, apply conservative refinements via the harness_* tools, and report results. You never edit files directly."
         };
@@ -12920,7 +12940,7 @@ var HarnessPlugin = async ({ directory, client }) => {
         }
         appendEvidence(global, { ts: new Date().toISOString(), sessionID: id, kind: "session_idle", project: directory });
         activity.delete(id);
-        runAutoRefine(refineClient, directory, global, project, { enabled: AUTO_REFINE_ENABLED, minEvidence: AUTO_REFINE_MIN_EVIDENCE, maxOps: AUTO_REFINE_MAX_OPS });
+        runAutoRefine(refineClient, directory, global, project, { enabled: AUTO_REFINE_ENABLED, minEvidence: AUTO_REFINE_MIN_EVIDENCE, maxOps: AUTO_REFINE_MAX_OPS, parentID: id, model: pluginOptions.model });
       } else if (event.type === "session.created") {
         appendEvidence(global, { ts: new Date().toISOString(), sessionID: id, kind: "session_created", project: directory });
       }

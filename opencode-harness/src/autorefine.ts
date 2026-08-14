@@ -41,10 +41,26 @@ export function isRefineDue(rows: EvidenceEntry[], state: RefineState, minNew = 
 
 export type AutoRefineClient = {
   session: {
-    create(opts: { query?: { directory?: string } }): Promise<{ id: string }>;
+    create(opts: { query?: { directory?: string }; body?: { parentID?: string } }): Promise<{ id: string }>;
     promptAsync(opts: unknown): Promise<unknown>;
   };
 };
+
+export type ModelRef = { providerID: string; modelID: string };
+
+/**
+ * Split a model reference string ("provider/modelID") into provider + model.
+ * opencode model ids may themselves contain slashes (e.g. "ds/deepseek-v4-flash"
+ * under provider "omni-deepseek"), so the provider is everything before the
+ * FIRST slash. A bare model id (no slash) yields providerID "" so callers can
+ * decide whether to attach an explicit model to a session.
+ */
+export function parseModelRef(model: string | undefined): ModelRef | undefined {
+  if (!model) return undefined;
+  const idx = model.indexOf("/");
+  if (idx <= 0) return { providerID: "", modelID: model };
+  return { providerID: model.slice(0, idx), modelID: model.slice(idx + 1) };
+}
 
 const REFINE_PROMPT = `Run the harness refine workflow (load the \`harness-refine\` skill) and apply evidence-backed refinements. Be conservative: weak evidence means no change. Apply at most $MAX_OPS ops.`;
 
@@ -55,7 +71,7 @@ export async function runAutoRefine(
   directory: string,
   global: string,
   project: string,
-  opts: { enabled?: boolean; minEvidence?: number; maxOps?: number } = {},
+  opts: { enabled?: boolean; minEvidence?: number; maxOps?: number; parentID?: string; model?: string } = {},
 ): Promise<boolean> {
   if (opts.enabled === false) return false;
   if (refining) return false;
@@ -64,14 +80,19 @@ export async function runAutoRefine(
   if (!isRefineDue(rows, state, opts.minEvidence ?? AUTO_REFINE_MIN_EVIDENCE)) return false;
   refining = true;
   try {
-    const session = await client.session.create({ query: { directory } });
-    await client.session.promptAsync({
-      path: { id: session.id },
-      body: {
-        agent: "refiner",
-        parts: [{ type: "text", text: REFINE_PROMPT.replace("$MAX_OPS", String(opts.maxOps ?? AUTO_REFINE_MAX_OPS)) }],
-      },
+    const session = await client.session.create({
+      query: { directory },
+      body: opts.parentID ? { parentID: opts.parentID } : undefined,
     });
+    const ref = parseModelRef(opts.model);
+    const body: Record<string, unknown> = {
+      agent: "refiner",
+      parts: [{ type: "text", text: REFINE_PROMPT.replace("$MAX_OPS", String(opts.maxOps ?? AUTO_REFINE_MAX_OPS)) }],
+    };
+    if (ref && ref.providerID) {
+      body.model = { providerID: ref.providerID, modelID: ref.modelID };
+    }
+    await client.session.promptAsync({ path: { id: session.id }, body });
     const watermark = rows.reduce((max, r) => (r.ts > max ? r.ts : max), "");
     writeRefineState(project, { lastAutoRefineAt: new Date().toISOString(), watermark });
     return true;
