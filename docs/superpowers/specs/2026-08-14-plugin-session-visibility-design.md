@@ -92,48 +92,36 @@ Result: refiner sessions become children of the real session that triggered
 them, and the desktop app's existing `parentID` filtering hides them from the
 home list.
 
-### 2. Three-way visibility switch via plugin options
+### 2. Always nest (no toggle)
+
+The visibility switch from the original brainstorming was intentionally dropped
+after implementation review: the user confirmed always-nest is the desired
+behavior and a toggle is not needed. Every auto-refine session is created as a
+child of the triggering session, which the desktop app already hides from the
+home list. No `sessionVisibility` option exists.
+
+### 3. Configurable refiner model
 
 Extend the plugin factory to accept the opencode plugin-options tuple form and
-read a `sessionVisibility` option:
+read a `model` option (string like `"provider/model-id"`):
 
 ```jsonc
 // ~/.config/opencode/opencode.jsonc
 "plugin": [
   ["opencode-super@git+https://github.com/Skunk-Tech/opencode-super.git",
-   {
-     "sessionVisibility": "nested",  // "nested" | "hidden" | "visible"
-     "refinerModel": "local/ollama/qwen2.5"
-   }]
+   { "model": "omni-deepseek/ds/deepseek-v4-flash" }]
 ]
 ```
-
-Semantics:
-
-- `"nested"` (default): create as child of the real session (hidden from the
-  desktop home list, attached to the parent).
-- `"hidden"`: create as child, then `session.update({ time: { archived: ... } })`
-  after the refine completes.
-- `"visible"`: current behavior (top-level, always visible).
-
-Options are read defensively: unknown values fall back to `"nested"`, and any
-missing option falls back to the default.
-
-### 3. Configurable refiner model
-
-Add a `refinerModel` option (string like `"provider/model-id"`):
 
 - When set, pass the string directly to the `refiner` agent definition's `model`
   field in the `config` hook so both auto-refine and the `/refine` command use
   it.
 - Also pass it as `model` on `session.create` / `promptAsync` for the auto-refine
-  path. The SDK accepts `model: { providerID, modelID }`; the plugin splits the
-  `"provider/model-id"` string on the first `/` to build that object.
-- When unset, keep the current default model behavior.
-
-Note: the archive call in "hidden" mode uses the same shape as the desktop
-app's existing archive action:
-`session.update({ sessionID, directory, time: { archived: Date.now() } })`.
+  path. The SDK accepts `model: { providerID, modelID }`; `parseModelRef` splits
+  the `"provider/model-id"` string on the first `/` to build that object
+  (handling slashes in the model id itself, e.g. `ds/deepseek-v4-flash`).
+- When unset, keep the current default model behavior. A user-set
+  `agent.refiner.model` wins over the plugin option.
 
 ### 4. Build and ship
 
@@ -149,9 +137,11 @@ app's existing archive action:
 - No change to the `/refine` and `/harness` commands (user-invoked, stay normal
   sessions).
 - No opencode core/UI patch. An expandable visible tree under each parent
-  session is explicitly out of scope (would require a core UI change); "nested"
+  session is explicitly out of scope (would require a core UI change); nesting
   means filtered from the home list and attached to the parent.
 - No auto-refine gating/throttling changes beyond the existing watermark.
+- No visibility toggle / archive-on-complete option. Always-nest was confirmed
+  as the final behavior.
 
 ## Files Touched
 

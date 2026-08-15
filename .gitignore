@@ -1,3 +1,6 @@
 # Dev/build artifacts inside the bundled harness source
 opencode-harness/dist/
 opencode-harness/node_modules/
+
+# Runtime plugin state written by the installed plugin in this repo
+.opencode/harness/
