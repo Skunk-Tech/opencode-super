@@ -14,7 +14,7 @@ function twoDirs(): { global: string; project: string; cleanup: () => void } {
 test("applyOps snapshots then writes global-scope memories to global dir", () => {
   const { global, project, cleanup } = twoDirs();
   try {
-    const result = applyOps(global, project, [{ op: "memory", kind: "memory", name: "m1", scope: "global", body: "Use --no-verify.", confidence: 0.7, evidence: ["e1"] }]);
+    const result = applyOps(global, project, [{ op: "memory", kind: "memory", name: "m1", scope: "global", body: "Use --no-verify.", confidence: 0.7, evidence: [] }]);
     expect(result.applied).toEqual(["memory:m1"]);
     expect(listSnapshots(global).length).toBe(1);
     expect(listMemories(global).length).toBe(1);
@@ -26,7 +26,7 @@ test("applyOps snapshots then writes global-scope memories to global dir", () =>
 test("applyOps routes project-scope memories to the project dir", () => {
   const { global, project, cleanup } = twoDirs();
   try {
-    const result = applyOps(global, project, [{ op: "memory", kind: "memory", name: "p1", scope: "project", body: "This repo uses bun test.", confidence: 0.8, evidence: ["e2"] }]);
+    const result = applyOps(global, project, [{ op: "memory", kind: "memory", name: "p1", scope: "project", body: "This repo uses bun test.", confidence: 0.8, evidence: [] }]);
     expect(result.applied).toEqual(["memory:p1"]);
     expect(listMemories(global).length).toBe(0);
     expect(listMemories(project).length).toBe(1);
@@ -62,7 +62,7 @@ test("applyOps delete op removes entry from the right dir", () => {
 test("applyOps writes a subagent spec when specKind is subagent", () => {
   const { global, project, cleanup } = twoDirs();
   try {
-    const result = applyOps(global, project, [{ op: "spec", kind: "spec", specKind: "subagent", name: "code-rev", scope: "global", body: "Review pass spec.", confidence: 0.6, evidence: ["e2"] }]);
+    const result = applyOps(global, project, [{ op: "spec", kind: "spec", specKind: "subagent", name: "code-rev", scope: "global", body: "Review pass spec.", confidence: 0.6, evidence: [] }]);
     expect(result.applied).toEqual(["spec:code-rev"]);
     const specs = listSpecs(global);
     expect(specs.length).toBe(1);
@@ -301,4 +301,70 @@ test("evidenceRefMatches: exact triple, bare ts, bare kind/tool, and substring",
   expect(evidenceRefMatches(row, "tool_failure")).toBe(true);
   expect(evidenceRefMatches(row, "bash")).toBe(true);
   expect(evidenceRefMatches(row, "nope")).toBe(false);
+});
+
+test("applyOps rejects failing ops and applies the valid subset", () => {
+  const { dir: global, cleanup } = tmpDir();
+  try {
+    seedEvidence(global, [evidenceRow("2026-01-01T00:00:00.000Z")]);
+    const project = global;
+    const result = applyOps(global, project, [
+      memoryOp(),
+      memoryOp({ name: "bad", evidence: ["1999-12-31T00:00:00.000Z"] }),
+    ]);
+    expect(result.applied).toContain("memory:lesson");
+    expect(result.applied.some((a) => a.includes("bad"))).toBe(false);
+    expect(result.rejected.length).toBe(1);
+    expect(result.rejected[0].op).toContain("bad");
+    expect(result.snapshotID.length).toBeGreaterThan(0);
+    expect(fs.existsSync(path.join(global, "memories", "lesson.md"))).toBe(true);
+    expect(fs.existsSync(path.join(global, "memories", "bad.md"))).toBe(false);
+  } finally { cleanup(); }
+});
+
+test("applyOps read-back verifies applied writes", () => {
+  const { dir: global, cleanup } = tmpDir();
+  try {
+    seedEvidence(global, [evidenceRow("2026-01-01T00:00:00.000Z")]);
+    const project = global;
+    const result = applyOps(global, project, [memoryOp()]);
+    expect(result.verified.length).toBe(1);
+    expect(result.verified[0].ok).toBe(true);
+    expect(result.verified[0].name).toBe("lesson");
+  } finally { cleanup(); }
+});
+
+test("applyOps returns snapshot id even when all ops are rejected", () => {
+  const { dir: global, cleanup } = tmpDir();
+  try {
+    seedEvidence(global, [evidenceRow("2026-01-01T00:00:00.000Z")]);
+    const project = global;
+    const result = applyOps(global, project, [memoryOp({ evidence: ["1999-12-31T00:00:00.000Z"] })]);
+    expect(result.applied).toEqual([]);
+    expect(result.rejected.length).toBe(1);
+    expect(result.snapshotID.length).toBeGreaterThan(0);
+  } finally { cleanup(); }
+});
+
+test("applyOps delete op verified (file gone after apply)", () => {
+  const { dir: global, cleanup } = tmpDir();
+  try {
+    seedEvidence(global, [evidenceRow("2026-01-01T00:00:00.000Z")]);
+    const project = global;
+    writeMemory(project, { name: "lesson", scope: "global", confidence: 0.7, created: "2026-01-01", updated: "2026-01-01", evidence: [], body: "Doomed." });
+    const result = applyOps(global, project, [{ op: "delete", kind: "memory", name: "lesson", scope: "project", body: "" }]);
+    expect(result.applied).toContain("delete:memory:lesson");
+    expect(fs.existsSync(path.join(project, "memories", "lesson.md"))).toBe(false);
+  } finally { cleanup(); }
+});
+
+test("applyOps empty ops array returns empty result with empty snapshotID", () => {
+  const { dir: global, cleanup } = tmpDir();
+  try {
+    const project = global;
+    const result = applyOps(global, project, []);
+    expect(result.applied).toEqual([]);
+    expect(result.rejected).toEqual([]);
+    expect(result.verified).toEqual([]);
+  } finally { cleanup(); }
 });

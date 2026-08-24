@@ -86,7 +86,7 @@ test("harness_team returns a named team spec body", async () => {
   const hooks = (await HarnessPlugin({ directory: process.cwd(), client: {} } as any)) as any;
   try {
     await hooks.tool.harness_apply.execute({
-      ops: [{ op: "spec", kind: "spec", specKind: "team", name: "doc-team", scope: "global", body: "Pattern: pipeline\nTask type: docs\nRoles: writer, reviewer\nCoordination: writer then reviewer\nUse when: repeated doc rewrites", confidence: 0.7, evidence: ["smoke"] }],
+      ops: [{ op: "spec", kind: "spec", specKind: "team", name: "doc-team", scope: "global", body: "Pattern: pipeline\nTask type: docs\nRoles: writer, reviewer\nCoordination: writer then reviewer\nUse when: repeated doc rewrites", confidence: 0.7, evidence: [] }],
     });
     const out = await hooks.tool.harness_team.execute({ name: "doc-team" });
     expect(out).toContain("doc-team");

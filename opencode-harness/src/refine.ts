@@ -1,4 +1,6 @@
-import { readEvidence, loadState, loadMergedState, writeMemory, writeSpec, deleteEntry, snapshot, type Memory, type Spec, type EvidenceEntry } from "./store";
+import fs from "fs";
+import path from "path";
+import { readEvidence, loadState, loadMergedState, writeMemory, writeSpec, deleteEntry, snapshot, listMemories, listSpecs, type Memory, type Spec, type EvidenceEntry } from "./store";
 
 export type RefineOp = {
   op: "memory" | "spec" | "delete";
@@ -24,16 +26,34 @@ export function gatherEvidenceSummary(dir: string, focus?: string, project?: str
   return lines.join("\n");
 }
 
-export function applyOps(global: string, project: string, ops: RefineOp[]): { snapshotID: string; applied: string[] } {
-  if (ops.length === 0) return { snapshotID: "", applied: [] };
+export type RejectedOp = { op: string; reason: string };
+export type VerifiedWrite = { name: string; kind: "memory" | "spec"; ok: boolean };
+export type ApplyResult = { snapshotID: string; applied: string[]; rejected: RejectedOp[]; verified: VerifiedWrite[] };
+
+export function applyOps(global: string, project: string, ops: RefineOp[]): ApplyResult {
+  if (ops.length === 0) return { snapshotID: "", applied: [], rejected: [], verified: [] };
+  const verdicts = validateOps(global, project, ops);
   const now = new Date().toISOString();
   const applied: string[] = [];
+  const rejected: RejectedOp[] = [];
+  const verified: VerifiedWrite[] = [];
+  const validOps = ops.filter((_, index) => {
+    const verdict = verdicts.find((v) => v.index === index);
+    if (verdict && verdict.reasons.length > 0) {
+      rejected.push({ op: `${verdict.op.op}:${verdict.op.kind}:${verdict.op.name}`, reason: verdict.reasons.join("; ") });
+      return false;
+    }
+    return true;
+  });
   const globalState = loadState(global);
   const projectState = loadState(project);
-  const touchesProject = ops.some((op) => op.scope === "project");
+  const touchesProject = validOps.some((op) => op.scope === "project");
   const snapshotID = snapshot(global);
   if (touchesProject) snapshot(project, snapshotID);
-  for (const op of ops) {
+  if (validOps.length === 0) {
+    return { snapshotID, applied: [], rejected, verified: [] };
+  }
+  for (const op of validOps) {
     const dir = op.scope === "project" ? project : global;
     if (op.op === "delete") {
       deleteEntry(dir, op.kind, op.name);
@@ -66,7 +86,21 @@ export function applyOps(global: string, project: string, ops: RefineOp[]): { sn
       applied.push(`spec:${op.name}`);
     }
   }
-  return { snapshotID, applied };
+  for (const op of validOps) {
+    const dir = op.scope === "project" ? project : global;
+    if (op.op === "delete") {
+      const stillThere = op.kind === "memory"
+        ? fs.existsSync(path.join(dir, "memories", `${op.name}.md`))
+        : fs.existsSync(path.join(dir, "specs", `${op.name}.md`));
+      verified.push({ name: op.name, kind: op.kind, ok: !stillThere });
+      continue;
+    }
+    const found = op.kind === "memory"
+      ? listMemories(dir).find((m) => m.name === op.name && m.body.trim() === (op.body ?? "").trim())
+      : listSpecs(dir).find((s) => s.name === op.name && s.body.trim() === (op.body ?? "").trim());
+    verified.push({ name: op.name, kind: op.kind, ok: Boolean(found) });
+  }
+  return { snapshotID, applied, rejected, verified };
 }
 
 export type OpVerdict = {
