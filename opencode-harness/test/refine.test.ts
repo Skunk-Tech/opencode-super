@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
-import { applyOps, gatherEvidenceSummary } from "../src/refine";
-import { appendEvidence, writeMemory, listMemories, listSnapshots, listSpecs } from "../src/store";
+import fs from "fs";
+import path from "path";
+import { applyOps, gatherEvidenceSummary, validateOps, evidenceRefMatches } from "../src/refine";
+import { appendEvidence, writeMemory, listMemories, listSnapshots, listSpecs, type EvidenceEntry } from "../src/store";
 import { tmpDir } from "./helpers";
 
 function twoDirs(): { global: string; project: string; cleanup: () => void } {
@@ -109,4 +111,194 @@ test("gatherEvidenceSummary with project filter excludes other projects", () => 
     expect(mine).toContain("mine");
     expect(mine).not.toContain("other");
   } finally { cleanup(); }
+});
+
+function seedEvidence(dir: string, rows: EvidenceEntry[]): void {
+  fs.writeFileSync(path.join(dir, "evidence.jsonl"), rows.map((r) => JSON.stringify(r)).join("\n") + "\n", "utf8");
+}
+
+const evidenceRow = (ts: string, project = "/work"): EvidenceEntry => ({
+  ts, sessionID: "s1", kind: "tool_failure", tool: "bash", project,
+});
+
+function memoryOp(over: Partial<{ name: string; scope: "global" | "project"; body: string; evidence: string[]; confidence: number }> = {}) {
+  return {
+    op: "memory" as const,
+    kind: "memory" as const,
+    name: over.name ?? "lesson",
+    scope: (over.scope ?? "project") as "global" | "project",
+    body: over.body ?? "Use the documented pattern.",
+    evidence: over.evidence ?? ["2026-01-01T00:00:00.000Z"],
+    confidence: over.confidence ?? 0.7,
+  };
+}
+
+function teamSpecOp(over: Partial<{ body: string; scope: "global" | "project" }> = {}) {
+  return {
+    op: "spec" as const,
+    kind: "spec" as const,
+    specKind: "team" as const,
+    name: "doc-team",
+    scope: (over.scope ?? "project") as "global" | "project",
+    body: over.body ?? "Pattern: pipeline\nTask type: docs\nRoles: writer, reviewer\nCoordination: writer then reviewer\nUse when: repeated doc rewrites",
+  };
+}
+
+test("validateOps passes a well-grounded project memory", () => {
+  const { dir: global, cleanup } = tmpDir();
+  try {
+    seedEvidence(global, [evidenceRow("2026-01-01T00:00:00.000Z")]);
+    const project = global;
+    const verdicts = validateOps(global, project, [memoryOp()]);
+    expect(verdicts).toHaveLength(1);
+    expect(verdicts[0].pass).toBe(true);
+  } finally { cleanup(); }
+});
+
+test("validateOps rejects unmatched evidence refs", () => {
+  const { dir: global, cleanup } = tmpDir();
+  try {
+    seedEvidence(global, [evidenceRow("2026-01-01T00:00:00.000Z")]);
+    const project = global;
+    const verdicts = validateOps(global, project, [memoryOp({ evidence: ["1999-12-31T00:00:00.000Z"] })]);
+    expect(verdicts[0].pass).toBe(false);
+    expect(verdicts[0].reasons.join(" ")).toContain("1999-12-31T00:00:00.000Z");
+  } finally { cleanup(); }
+});
+
+test("validateOps warns (not fails) on empty evidence", () => {
+  const { dir: global, cleanup } = tmpDir();
+  try {
+    const verdicts = validateOps(global, global, [memoryOp({ evidence: [] })]);
+    expect(verdicts[0].pass).toBe(true);
+    expect(verdicts[0].warnings.length).toBeGreaterThan(0);
+  } finally { cleanup(); }
+});
+
+test("validateOps rejects a team spec missing a fixed-shape field", () => {
+  const { dir: global, cleanup } = tmpDir();
+  try {
+    seedEvidence(global, [evidenceRow("2026-01-01T00:00:00.000Z")]);
+    const verdicts = validateOps(global, global, [teamSpecOp({ body: "Pattern: pipeline\nTask type: docs\nRoles: writer\nCoordination: writer then reviewer" })]);
+    expect(verdicts[0].pass).toBe(false);
+    expect(verdicts[0].reasons.join(" ")).toContain("Use when");
+  } finally { cleanup(); }
+});
+
+test("validateOps rejects an empty memory body", () => {
+  const { dir: global, cleanup } = tmpDir();
+  try {
+    seedEvidence(global, [evidenceRow("2026-01-01T00:00:00.000Z")]);
+    const verdicts = validateOps(global, global, [memoryOp({ body: "  " })]);
+    expect(verdicts[0].pass).toBe(false);
+  } finally { cleanup(); }
+});
+
+test("validateOps flags a name conflict with a different body", () => {
+  const { dir: global, cleanup } = tmpDir();
+  try {
+    seedEvidence(global, [evidenceRow("2026-01-01T00:00:00.000Z")]);
+    writeMemory(global, { name: "lesson", scope: "global", confidence: 0.5, created: "2026-01-01", updated: "2026-01-01", evidence: [], body: "The ORIGINAL trusted body." });
+    const verdicts = validateOps(global, global, [memoryOp({ body: "A DIFFERENT body." })]);
+    expect(verdicts[0].pass).toBe(false);
+    expect(verdicts[0].reasons.join(" ")).toContain("conflict");
+  } finally { cleanup(); }
+});
+
+test("validateOps treats an identical-body rewrite as idempotent pass", () => {
+  const { dir: global, cleanup } = tmpDir();
+  try {
+    seedEvidence(global, [evidenceRow("2026-01-01T00:00:00.000Z")]);
+    writeMemory(global, { name: "lesson", scope: "global", confidence: 0.5, created: "2026-01-01", updated: "2026-01-01", evidence: [], body: "Use the documented pattern." });
+    const verdicts = validateOps(global, global, [memoryOp()]);
+    expect(verdicts[0].pass).toBe(true);
+  } finally { cleanup(); }
+});
+
+test("validateOps rejects a global op that duplicates a project memory with different body", () => {
+  const { global, project, cleanup } = twoDirs();
+  try {
+    seedEvidence(global, [evidenceRow("2026-01-01T00:00:00.000Z")]);
+    writeMemory(project, { name: "lesson", scope: "project", confidence: 0.5, created: "2026-01-01", updated: "2026-01-01", evidence: [], body: "Project-specific truth." });
+    const verdicts = validateOps(global, project, [memoryOp({ scope: "global", body: "Global version." })]);
+    expect(verdicts[0].pass).toBe(false);
+  } finally { cleanup(); }
+});
+
+test("validateOps rejects specKind on a memory op", () => {
+  const { dir: global, cleanup } = tmpDir();
+  try {
+    seedEvidence(global, [evidenceRow("2026-01-01T00:00:00.000Z")]);
+    const verdicts = validateOps(global, global, [{ op: "memory", kind: "memory", specKind: "team", name: "lesson", scope: "global", body: "Body", evidence: ["2026-01-01T00:00:00.000Z"] }]);
+    expect(verdicts[0].pass).toBe(false);
+  } finally { cleanup(); }
+});
+
+test("validateOps warns on out-of-range confidence", () => {
+  const { dir: global, cleanup } = tmpDir();
+  try {
+    seedEvidence(global, [evidenceRow("2026-01-01T00:00:00.000Z")]);
+    const verdicts = validateOps(global, global, [memoryOp({ confidence: 1.5 })]);
+    expect(verdicts[0].warnings.length).toBeGreaterThan(0);
+  } finally { cleanup(); }
+});
+
+test("validateOps flags single-session evidence as over-generalization", () => {
+  const { dir: global, cleanup } = tmpDir();
+  try {
+    seedEvidence(global, [
+      { ts: "2026-01-01T00:00:00.000Z", sessionID: "s1", kind: "tool_failure", tool: "bash", project: "/work" },
+      { ts: "2026-01-02T00:00:00.000Z", sessionID: "s1", kind: "tool_failure", tool: "grep", project: "/work" },
+    ]);
+    const verdicts = validateOps(global, global, [memoryOp({ evidence: ["2026-01-01T00:00:00.000Z", "2026-01-02T00:00:00.000Z"] })]);
+    expect(verdicts[0].warnings.join(" ")).toContain("single session");
+  } finally { cleanup(); }
+});
+
+test("validateOps flags contested evidence (later retry for the same tool)", () => {
+  const { dir: global, cleanup } = tmpDir();
+  try {
+    seedEvidence(global, [
+      { ts: "2026-01-01T00:00:00.000Z", sessionID: "s1", kind: "tool_failure", tool: "bash", project: "/work" },
+      { ts: "2026-01-03T00:00:00.000Z", sessionID: "s1", kind: "retry", tool: "bash", project: "/work" },
+    ]);
+    const verdicts = validateOps(global, global, [memoryOp({ evidence: ["2026-01-01T00:00:00.000Z"] })]);
+    expect(verdicts[0].warnings.join(" ")).toContain("contested");
+  } finally { cleanup(); }
+});
+
+test("validateOps rejects overwriting a high-confidence memory with a different body", () => {
+  const { dir: global, cleanup } = tmpDir();
+  try {
+    seedEvidence(global, [evidenceRow("2026-01-01T00:00:00.000Z")]);
+    writeMemory(global, { name: "lesson", scope: "global", confidence: 0.85, created: "2026-01-01", updated: "2026-01-01", evidence: [], body: "Trusted global truth." });
+    const verdicts = validateOps(global, global, [memoryOp({ scope: "global", body: "New untrusted claim." })]);
+    expect(verdicts[0].pass).toBe(false);
+  } finally { cleanup(); }
+});
+
+test("validateOps validates delete ops (missing target is a warning, not failure)", () => {
+  const { dir: global, cleanup } = tmpDir();
+  try {
+    seedEvidence(global, [evidenceRow("2026-01-01T00:00:00.000Z")]);
+    const verdicts = validateOps(global, global, [{ op: "delete", kind: "memory", name: "does-not-exist", scope: "global", body: "" }]);
+    expect(verdicts[0].pass).toBe(true);
+    expect(verdicts[0].warnings.length).toBeGreaterThan(0);
+  } finally { cleanup(); }
+});
+
+test("validateOps returns empty array for empty ops", () => {
+  const { dir: global, cleanup } = tmpDir();
+  try {
+    expect(validateOps(global, global, [])).toEqual([]);
+  } finally { cleanup(); }
+});
+
+test("evidenceRefMatches: exact triple, bare ts, bare kind/tool, and substring", () => {
+  const row = evidenceRow("2026-01-01T00:00:00.000Z");
+  expect(evidenceRefMatches(row, "2026-01-01T00:00:00.000Z tool_failure bash")).toBe(true);
+  expect(evidenceRefMatches(row, "2026-01-01T00:00:00.000Z")).toBe(true);
+  expect(evidenceRefMatches(row, "tool_failure")).toBe(true);
+  expect(evidenceRefMatches(row, "bash")).toBe(true);
+  expect(evidenceRefMatches(row, "nope")).toBe(false);
 });

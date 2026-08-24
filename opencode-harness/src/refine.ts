@@ -1,4 +1,4 @@
-import { readEvidence, loadState, loadMergedState, writeMemory, writeSpec, deleteEntry, snapshot, type Memory, type Spec } from "./store";
+import { readEvidence, loadState, loadMergedState, writeMemory, writeSpec, deleteEntry, snapshot, type Memory, type Spec, type EvidenceEntry } from "./store";
 
 export type RefineOp = {
   op: "memory" | "spec" | "delete";
@@ -67,4 +67,116 @@ export function applyOps(global: string, project: string, ops: RefineOp[]): { sn
     }
   }
   return { snapshotID, applied };
+}
+
+export type OpVerdict = {
+  index: number;
+  op: RefineOp;
+  name: string;
+  pass: boolean;
+  reasons: string[];
+  warnings: string[];
+};
+
+export function evidenceRefMatches(row: EvidenceEntry, ref: string): boolean {
+  const trimmed = ref.trim();
+  if (!trimmed) return false;
+  const exact = `${row.ts} ${row.kind}${row.tool ? ` ${row.tool}` : ""}`;
+  if (trimmed === exact) return true;
+  if (trimmed === row.ts) return true;
+  if (trimmed === row.kind) return true;
+  if (row.tool && trimmed === row.tool) return true;
+  return exact.includes(trimmed);
+}
+
+const TEAM_FIELDS = ["Pattern:", "Task type:", "Roles:", "Coordination:", "Use when:"];
+
+export function validateOps(global: string, project: string, ops: RefineOp[]): OpVerdict[] {
+  const evidence = readEvidence(global);
+  const globalState = loadState(global);
+  const projectState = loadState(project);
+
+  return ops.map((op, index) => {
+    const name = op.name;
+    const reasons: string[] = [];
+    const warnings: string[] = [];
+    const targetScopeDir = op.scope === "project" ? project : global;
+    const existing =
+      op.scope === "project"
+        ? projectState.memories.concat(projectState.specs as unknown as Memory[])
+        : globalState.memories.concat(globalState.specs as unknown as Memory[]);
+    const existingHit = existing.find((m) => (m as { name: string }).name === name);
+
+    // specKind only valid on spec ops
+    if (op.kind === "memory" && (op as { specKind?: string }).specKind) {
+      reasons.push(`specKind is only valid on spec ops (op#${index} memory:${name})`);
+    }
+
+    // body structure
+    const body = (op.body ?? "").trim();
+    if (op.op !== "delete" && !body) reasons.push(`empty body for ${op.kind}:${name}`);
+    if (op.kind === "spec" && (op as { specKind?: string }).specKind === "team") {
+      for (const field of TEAM_FIELDS) {
+        if (!body.includes(field)) reasons.push(`team spec missing "${field}" field`);
+      }
+    }
+
+    // evidence grounding
+    const refs = op.evidence ?? [];
+    if (refs.length === 0) {
+      warnings.push("no evidence refs; confidence is the only guard");
+    } else {
+      const unmatched = refs.filter((r) => !evidence.some((row) => evidenceRefMatches(row, r)));
+      if (unmatched.length > 0) reasons.push(`unmatched evidence refs: ${unmatched.join(", ")}`);
+      const matchedRows = evidence.filter((row) => refs.some((r) => evidenceRefMatches(row, r)));
+      const sessions = new Set(matchedRows.map((r) => r.sessionID));
+      if (sessions.size === 1 && matchedRows.length > 0) {
+        warnings.push("evidence rests on a single session; lower confidence or gather more before promoting");
+      }
+      for (const row of matchedRows) {
+        const contested = evidence.some((other) =>
+          other.project === row.project &&
+          other.tool === row.tool &&
+          other.ts > row.ts &&
+          other.kind === "retry"
+        );
+        if (contested) {
+          warnings.push(`contested: a later retry exists for tool ${row.tool ?? "?"}; acknowledge counter-evidence`);
+          break;
+        }
+      }
+    }
+
+    // name conflict / high-confidence contradiction (delete exempt)
+    if (op.op !== "delete" && existingHit) {
+      const existingBody = (existingHit as { body: string }).body;
+      if (existingBody === body) {
+        // idempotent rewrite
+      } else if ((existingHit as { confidence: number }).confidence >= 0.7) {
+        reasons.push(`conflict: overwrites a high-confidence (${(existingHit as { confidence: number }).confidence}) existing ${(existingHit as { kind?: string }).kind ?? "memory"}:${name} with a different body`);
+      } else {
+        reasons.push(`conflict: ${name} already exists with a different body`);
+      }
+    }
+
+    // scope consistency
+    if (op.scope === "global") {
+      const projectDup = projectState.memories.concat(projectState.specs as unknown as Memory[]).find((m) => (m as { name: string }).name === name);
+      if (projectDup && (projectDup as { body: string }).body !== body) {
+        reasons.push(`global op would shadow a project ${(projectDup as { kind?: string }).kind ?? "memory"}:${name} with a different body`);
+      }
+    }
+
+    // confidence range
+    if (op.confidence !== undefined && (op.confidence < 0 || op.confidence > 1)) {
+      warnings.push(`confidence ${op.confidence} outside 0..1`);
+    }
+
+    // delete: missing target is a warning
+    if (op.op === "delete" && !existingHit) {
+      warnings.push(`delete target ${name} does not exist in ${op.scope} scope`);
+    }
+
+    return { index, op, name, pass: reasons.length === 0, reasons, warnings };
+  });
 }
