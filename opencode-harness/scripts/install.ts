@@ -14,15 +14,20 @@ if (!fs.existsSync(dist)) {
 
 const copies: Array<[string, string]> = [
   [dist, path.join(configDir, "plugins", "harness.js")],
-  [path.join(root, "assets", "skills", "harness-refine", "SKILL.md"), path.join(configDir, "skills", "harness-refine", "SKILL.md")],
+  [path.join(root, "assets", "skills", "harness-refine"), path.join(configDir, "skills", "harness-refine")],
   [path.join(root, "assets", "commands", "refine.md"), path.join(configDir, "commands", "refine.md")],
   [path.join(root, "assets", "commands", "harness.md"), path.join(configDir, "commands", "harness.md")],
   [path.join(root, "assets", "agents", "refiner.md"), path.join(configDir, "agents", "refiner.md")],
+  [path.join(root, "assets", "agents", "redteam.md"), path.join(configDir, "agents", "redteam.md")],
 ];
 
 for (const [src, dest] of copies) {
   fs.mkdirSync(path.dirname(dest), { recursive: true });
-  fs.copyFileSync(src, dest);
+  if (fs.statSync(src).isDirectory()) {
+    fs.cpSync(src, dest, { recursive: true });
+  } else {
+    fs.copyFileSync(src, dest);
+  }
   console.log(`Installed ${dest}`);
 }
 console.log("Harness installed. Restart opencode to load the plugin.");

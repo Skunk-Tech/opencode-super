@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { readEvidence, loadState, loadMergedState, writeMemory, writeSpec, deleteEntry, snapshot, listMemories, listSpecs, type Memory, type Spec, type EvidenceEntry } from "./store";
+import { readEvidence, loadState, writeMemory, writeSpec, deleteEntry, snapshot, listMemories, listSpecs, type Memory, type Spec, type EvidenceEntry } from "./store";
 
 export type RefineOp = {
   op: "memory" | "spec" | "delete";
@@ -134,7 +134,6 @@ export function validateOps(global: string, project: string, ops: RefineOp[]): O
     const name = op.name;
     const reasons: string[] = [];
     const warnings: string[] = [];
-    const targetScopeDir = op.scope === "project" ? project : global;
     const existing =
       op.scope === "project"
         ? projectState.memories.concat(projectState.specs as unknown as Memory[])
@@ -157,7 +156,7 @@ export function validateOps(global: string, project: string, ops: RefineOp[]): O
 
     // evidence grounding
     const refs = op.evidence ?? [];
-    if (refs.length === 0) {
+    if (refs.length === 0 && op.op !== "delete") {
       warnings.push("no evidence refs; confidence is the only guard");
     } else {
       const unmatched = refs.filter((r) => !evidence.some((row) => evidenceRefMatches(row, r)));
@@ -172,7 +171,7 @@ export function validateOps(global: string, project: string, ops: RefineOp[]): O
           other.project === row.project &&
           other.tool === row.tool &&
           other.ts > row.ts &&
-          other.kind === "retry"
+          (other.kind === "retry" || other.kind === "session_error")
         );
         if (contested) {
           warnings.push(`contested: a later retry exists for tool ${row.tool ?? "?"}; acknowledge counter-evidence`);
@@ -193,8 +192,9 @@ export function validateOps(global: string, project: string, ops: RefineOp[]): O
       }
     }
 
-    // scope consistency
-    if (op.scope === "global") {
+    // scope consistency (delete exempt: a delete carries body "" and must not be
+    // rejected for "shadowing" a same-named project entry)
+    if (op.scope === "global" && op.op !== "delete") {
       const projectDup = projectState.memories.concat(projectState.specs as unknown as Memory[]).find((m) => (m as { name: string }).name === name);
       if (projectDup && (projectDup as { body: string }).body !== body) {
         reasons.push(`global op would shadow a project ${(projectDup as { kind?: string }).kind ?? "memory"}:${name} with a different body`);

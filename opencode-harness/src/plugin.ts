@@ -52,6 +52,17 @@ export const AUTO_UPDATE_ENABLED = true;
 export const UPDATE_CHECK_HOURS = 6;
 export const UPDATE_REPO = "Skunk-Tech/opencode-super";
 
+const OPS_SCHEMA = tool.schema.array(tool.schema.object({
+  op: tool.schema.enum(["memory", "spec", "delete"]),
+  kind: tool.schema.enum(["memory", "spec"]),
+  specKind: tool.schema.enum(["skill", "subagent", "team"]).optional(),
+  name: tool.schema.string(),
+  scope: tool.schema.enum(["global", "project"]),
+  body: tool.schema.string(),
+  confidence: tool.schema.number().optional(),
+  evidence: tool.schema.array(tool.schema.string()).optional(),
+}));
+
 type SessionActivity = { lastFinish?: string; sawToolCalls: boolean };
 
 export function isPrematureStop(finish: string | undefined, sawToolCalls: boolean): boolean {
@@ -202,16 +213,7 @@ export const HarnessPlugin: Plugin = async ({ directory, client }, options) => {
       harness_audit: tool({
         description: "Validate proposed harness ops against ground truth before applying. Read-only; never writes or snapshots. Checks evidence grounding, body structure, name conflicts, scope consistency, and adversarial concerns (single-session evidence, contested evidence, high-confidence contradictions). Returns a PASS/FAIL verdict per op with reasons.",
         args: {
-          ops: tool.schema.array(tool.schema.object({
-            op: tool.schema.enum(["memory", "spec", "delete"]),
-            kind: tool.schema.enum(["memory", "spec"]),
-            specKind: tool.schema.enum(["skill", "subagent", "team"]).optional(),
-            name: tool.schema.string(),
-            scope: tool.schema.enum(["global", "project"]),
-            body: tool.schema.string(),
-            confidence: tool.schema.number().optional(),
-            evidence: tool.schema.array(tool.schema.string()).optional(),
-          })).describe("Refinement operations to validate."),
+          ops: OPS_SCHEMA.describe("Refinement operations to validate."),
         },
         async execute(args) {
           const ops = (args as { ops: RefineOp[] }).ops;
@@ -229,16 +231,7 @@ export const HarnessPlugin: Plugin = async ({ directory, client }, options) => {
       harness_apply: tool({
         description: "Apply concrete harness refinements. Snapshots state first; every write is rollback-able via harness_rollback.",
         args: {
-          ops: tool.schema.array(tool.schema.object({
-            op: tool.schema.enum(["memory", "spec", "delete"]),
-            kind: tool.schema.enum(["memory", "spec"]),
-            specKind: tool.schema.enum(["skill", "subagent", "team"]).optional(),
-            name: tool.schema.string(),
-            scope: tool.schema.enum(["global", "project"]),
-            body: tool.schema.string(),
-            confidence: tool.schema.number().optional(),
-            evidence: tool.schema.array(tool.schema.string()).optional(),
-          })).describe("Refinement operations to apply."),
+          ops: OPS_SCHEMA.describe("Refinement operations to apply."),
         },
         async execute(args) {
           const ops = (args as { ops: RefineOp[] }).ops;
@@ -248,7 +241,7 @@ export const HarnessPlugin: Plugin = async ({ directory, client }, options) => {
           if (rejected.length) lines.push(`Rejected (${rejected.length}): ${rejected.map((r) => `${r.op} — ${r.reason}`).join("; ")}`);
           const failedVerify = verified.filter((v) => !v.ok);
           if (verified.length) lines.push(`Verified: ${verified.map((v) => `${v.kind}:${v.name}=${v.ok ? "ok" : "FAIL"}`).join(", ")}`);
-          if (failedVerify.length) lines.push(`ROLLBACK: snapshot ${snapshotID} — ${failedVerify.map((v) => v.name).join(", ")} did not write correctly`);
+          if (failedVerify.length) lines.push(`ROLLBACK: snapshot ${snapshotID} — ${failedVerify.map((v) => `${v.kind}:${v.name}`).join(", ")} did not write correctly`);
           return lines.join("\n");
         },
       }),

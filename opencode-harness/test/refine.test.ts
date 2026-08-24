@@ -267,6 +267,19 @@ test("validateOps flags contested evidence (later retry for the same tool)", () 
   } finally { cleanup(); }
 });
 
+test("validateOps flags contested evidence (later session_error for the same session/tool)", () => {
+  const { dir: global, cleanup } = tmpDir();
+  try {
+    seedEvidence(global, [
+      { ts: "2026-01-01T00:00:00.000Z", sessionID: "s1", kind: "tool_failure", tool: "bash", project: "/work" },
+      { ts: "2026-01-03T00:00:00.000Z", sessionID: "s1", kind: "session_error", tool: "bash", project: "/work" },
+    ]);
+    const verdicts = validateOps(global, global, [memoryOp({ evidence: ["2026-01-01T00:00:00.000Z"] })]);
+    expect(verdicts[0].warnings.join(" ")).toContain("contested");
+    expect(verdicts[0].pass).toBe(true);
+  } finally { cleanup(); }
+});
+
 test("validateOps rejects overwriting a high-confidence memory with a different body", () => {
   const { dir: global, cleanup } = tmpDir();
   try {
@@ -355,6 +368,21 @@ test("applyOps delete op verified (file gone after apply)", () => {
     const result = applyOps(global, project, [{ op: "delete", kind: "memory", name: "lesson", scope: "project", body: "" }]);
     expect(result.applied).toContain("delete:memory:lesson");
     expect(fs.existsSync(path.join(project, "memories", "lesson.md"))).toBe(false);
+  } finally { cleanup(); }
+});
+
+test("applyOps global-scope delete passes even when the name exists as a project memory", () => {
+  const { global, project, cleanup } = twoDirs();
+  try {
+    seedEvidence(global, [evidenceRow("2026-01-01T00:00:00.000Z")]);
+    writeMemory(project, { name: "lesson", scope: "project", confidence: 0.7, created: "2026-01-01", updated: "2026-01-01", evidence: [], body: "Project-specific truth." });
+    const result = applyOps(global, project, [{ op: "delete", kind: "memory", name: "lesson", scope: "global", body: "" }]);
+    expect(result.rejected).toEqual([]);
+    expect(result.applied).toContain("delete:memory:lesson");
+    expect(result.verified).toHaveLength(1);
+    expect(result.verified[0].ok).toBe(true);
+    expect(fs.existsSync(path.join(global, "memories", "lesson.md"))).toBe(false);
+    expect(listMemories(project).length).toBe(1);
   } finally { cleanup(); }
 });
 
