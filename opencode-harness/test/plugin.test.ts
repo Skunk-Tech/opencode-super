@@ -130,3 +130,13 @@ test("harness_audit returns PASS/FAIL verdicts without writing state", async () 
   const after = countJsonl();
   expect(after).toBe(before);
 });
+
+test("HarnessPlugin registers the harness-redteam adversarial reviewer", async () => {
+  const hooks = await HarnessPlugin({ directory: process.cwd() } as any);
+  const config: any = { command: {}, agent: {} };
+  await hooks.config?.(config);
+  expect(config.agent["harness-redteam"]).toBeDefined();
+  expect(config.agent["harness-redteam"].mode).toBe("subagent");
+  expect(config.agent["harness-redteam"].permission.edit).toBe("deny");
+  expect(config.agent["harness-redteam"].permission.bash).toBe("deny");
+});

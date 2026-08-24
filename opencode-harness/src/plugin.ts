@@ -125,6 +125,15 @@ export const HarnessPlugin: Plugin = async ({ directory, client }, options) => {
           prompt: "You are the refiner for the opencode Continual Harness. You analyze evidence, apply conservative refinements via the harness_* tools, and report results. You never edit files directly.",
         };
       }
+      if (!config.agent["harness-redteam"]) {
+        config.agent["harness-redteam"] = {
+          description: "Adversarial reviewer. Challenges refiner-proposed harness ops for counter-evidence, scope, and grounding.",
+          mode: "subagent",
+          model: pluginOptions.model || undefined,
+          permission: { edit: "deny", bash: "deny" } as unknown as Record<string, unknown>,
+          prompt: "You are the adversary for the opencode Continual Harness. Given a set of proposed harness ops (memory/spec writes or deletes) and the full evidence summary, challenge each one: find counter-evidence in the full harness store, question scope, demand the evidence supports the claim, flag over-generalization and single-session memories, and recommend accept/revise/reject per op. You never edit files directly; you only report challenges.",
+        };
+      }
     },
 
     "tool.execute.after": async (input, output) => {
