@@ -1,5 +1,8 @@
 import { expect, test } from "bun:test";
 import { looksLikeError, isPrematureStop, HarnessPlugin } from "../src/plugin";
+import fs from "fs";
+import os from "os";
+import path from "path";
 
 test("isPrematureStop flags finish:stop after tool activity", () => {
   expect(isPrematureStop("stop", true)).toBe(true);
@@ -110,4 +113,20 @@ test("harness_team reports unknown name and lists available teams", async () => 
   const out = await hooks.tool.harness_team.execute({ name: "no-such-team" });
   expect(out).toContain("no-such-team");
   expect(out).toMatch(/Available teams:|No team specs stored yet\./);
+});
+
+test("harness_audit returns PASS/FAIL verdicts without writing state", async () => {
+  const hooks = (await HarnessPlugin({ directory: process.cwd(), client: {} } as any)) as any;
+  const harnessDir = path.join(os.homedir(), ".config", "opencode", "harness");
+  const countJsonl = () => (fs.existsSync(harnessDir) ? fs.readdirSync(harnessDir).filter((f) => f.endsWith(".jsonl")).length : 0);
+  const before = countJsonl();
+  const out = await hooks.tool.harness_audit.execute({
+    ops: [
+      { op: "memory", kind: "memory", name: "audit-smoke", scope: "project", body: "A body that cannot match existing evidence because it has none and the ref is fake", evidence: ["1999-12-31T00:00:00.000Z"] },
+    ],
+  });
+  expect(out).toContain("FAIL");
+  expect(out).toContain("audit-smoke");
+  const after = countJsonl();
+  expect(after).toBe(before);
 });

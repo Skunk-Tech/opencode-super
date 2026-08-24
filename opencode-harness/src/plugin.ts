@@ -4,7 +4,7 @@ import path from "path";
 import { globalHarnessDir, projectHarnessDir, ensureDir } from "./paths";
 import { appendEvidence, loadState, loadMergedState, readEvidence, listSnapshots, rollback } from "./store";
 import { buildInjection, buildCompactionContext, buildContinuationNudge } from "./inject";
-import { gatherEvidenceSummary, applyOps, type RefineOp } from "./refine";
+import { gatherEvidenceSummary, applyOps, validateOps, type RefineOp } from "./refine";
 import { runAutoRefine, readRefineState, AUTO_REFINE_MIN_EVIDENCE, AUTO_REFINE_MAX_OPS, type AutoRefineClient } from "./autorefine";
 import { checkForUpdates, ownBundlePath, readVersionMarker } from "./updater";
 
@@ -190,6 +190,33 @@ export const HarnessPlugin: Plugin = async ({ directory, client }, options) => {
         },
       }),
 
+      harness_audit: tool({
+        description: "Validate proposed harness ops against ground truth before applying. Read-only; never writes or snapshots. Checks evidence grounding, body structure, name conflicts, scope consistency, and adversarial concerns (single-session evidence, contested evidence, high-confidence contradictions). Returns a PASS/FAIL verdict per op with reasons.",
+        args: {
+          ops: tool.schema.array(tool.schema.object({
+            op: tool.schema.enum(["memory", "spec", "delete"]),
+            kind: tool.schema.enum(["memory", "spec"]),
+            specKind: tool.schema.enum(["skill", "subagent", "team"]).optional(),
+            name: tool.schema.string(),
+            scope: tool.schema.enum(["global", "project"]),
+            body: tool.schema.string(),
+            confidence: tool.schema.number().optional(),
+            evidence: tool.schema.array(tool.schema.string()).optional(),
+          })).describe("Refinement operations to validate."),
+        },
+        async execute(args) {
+          const ops = (args as { ops: RefineOp[] }).ops;
+          const verdicts = validateOps(global, project, ops);
+          if (verdicts.length === 0) return "No ops to audit.";
+          return verdicts.map((v) => {
+            const parts = [`${v.pass ? "PASS" : "FAIL"} op#${v.index} ${v.op.op}:${v.op.kind}:${v.op.name}`];
+            if (v.reasons.length) parts.push(`reasons: ${v.reasons.join("; ")}`);
+            if (v.warnings.length) parts.push(`warnings: ${v.warnings.join("; ")}`);
+            return parts.join(" | ");
+          }).join("\n");
+        },
+      }),
+
       harness_apply: tool({
         description: "Apply concrete harness refinements. Snapshots state first; every write is rollback-able via harness_rollback.",
         args: {
@@ -206,8 +233,14 @@ export const HarnessPlugin: Plugin = async ({ directory, client }, options) => {
         },
         async execute(args) {
           const ops = (args as { ops: RefineOp[] }).ops;
-          const { snapshotID, applied } = applyOps(global, project, ops);
-          return `Applied ${applied.length} op(s). Snapshot: ${snapshotID}\nOps: ${applied.join(", ")}`;
+          const { snapshotID, applied, rejected, verified } = applyOps(global, project, ops);
+          const lines = [`Applied ${applied.length} op(s). Snapshot: ${snapshotID}`];
+          if (applied.length) lines.push(`Applied: ${applied.join(", ")}`);
+          if (rejected.length) lines.push(`Rejected (${rejected.length}): ${rejected.map((r) => `${r.op} — ${r.reason}`).join("; ")}`);
+          const failedVerify = verified.filter((v) => !v.ok);
+          if (verified.length) lines.push(`Verified: ${verified.map((v) => `${v.kind}:${v.name}=${v.ok ? "ok" : "FAIL"}`).join(", ")}`);
+          if (failedVerify.length) lines.push(`ROLLBACK: snapshot ${snapshotID} — ${failedVerify.map((v) => v.name).join(", ")} did not write correctly`);
+          return lines.join("\n");
         },
       }),
 
