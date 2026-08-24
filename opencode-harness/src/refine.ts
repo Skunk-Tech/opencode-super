@@ -169,12 +169,14 @@ export function validateOps(global: string, project: string, ops: RefineOp[]): O
       for (const row of matchedRows) {
         const contested = evidence.some((other) =>
           other.project === row.project &&
-          other.tool === row.tool &&
           other.ts > row.ts &&
-          (other.kind === "retry" || other.kind === "session_error")
+          (
+            (other.kind === "retry" && other.tool === row.tool) ||
+            (other.kind === "session_error" && other.sessionID === row.sessionID)
+          )
         );
         if (contested) {
-          warnings.push(`contested: a later retry exists for tool ${row.tool ?? "?"}; acknowledge counter-evidence`);
+          warnings.push(`contested: a later retry/session_error exists${row.tool ? ` for tool ${row.tool}` : ""}; acknowledge counter-evidence`);
           break;
         }
       }

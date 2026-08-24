@@ -300,6 +300,18 @@ test("validateOps validates delete ops (missing target is a warning, not failure
   } finally { cleanup(); }
 });
 
+test("validateOps flags contested evidence from a later session_error in the same session (no tool match needed)", () => {
+  const { dir: global, cleanup } = tmpDir();
+  try {
+    seedEvidence(global, [
+      { ts: "2026-01-01T00:00:00.000Z", sessionID: "s1", kind: "tool_failure", tool: "bash", project: "/work" },
+      { ts: "2026-01-03T00:00:00.000Z", sessionID: "s1", kind: "session_error", project: "/work" },
+    ]);
+    const verdicts = validateOps(global, global, [memoryOp({ evidence: ["2026-01-01T00:00:00.000Z"] })]);
+    expect(verdicts[0].warnings.join(" ")).toContain("contested");
+  } finally { cleanup(); }
+});
+
 test("validateOps returns empty array for empty ops", () => {
   const { dir: global, cleanup } = tmpDir();
   try {
