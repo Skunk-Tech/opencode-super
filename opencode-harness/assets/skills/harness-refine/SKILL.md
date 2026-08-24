@@ -19,9 +19,10 @@ You are running the opencode Continual Harness refine loop. Be conservative and 
    - `memory` — durable lesson with exact body and evidence reference.
    - `spec` — updated skill/subagent/team description.
    - `delete` — a memory/spec that proved wrong or is superseded.
-8. **Verify after apply**: read the returned `verified` list. A `verified: false` entry means the write did not land or did not parse — roll back to the returned snapshot id with `harness_rollback <snapshotID>` and report the failure.
-9. For brand-new skills or agents: only create them if repeated friction clearly justifies it. Prefer updating existing memories/specs first.
-10. If no candidate is strong, report "No change recommended" and stop.
+8. For team specs: read `references/team-architecture-patterns.md` first, pick the pattern matching the task shape, and only propose a team when evidence shows repeated coordination friction for that task type. Use the fixed body shape (Pattern/Task type/Roles/Coordination/Use when).
+9. **Verify after apply**: read the returned `verified` list. A `verified: false` entry means the write did not land or did not parse — roll back to the returned snapshot id with `harness_rollback <snapshotID>` and report the failure.
+10. For brand-new skills or agents: only create them if repeated friction clearly justifies it. Prefer updating existing memories/specs first.
+11. If no candidate is strong, report "No change recommended" and stop.
 
 ## Rules
 
