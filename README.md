@@ -21,6 +21,7 @@ The Continual Harness fixes that. It gives your agent **a memory that persists b
 - **Improves on its own schedule.** After enough new evidence, the harness runs its `/refine` loop automatically. It proposes conservative, evidence-backed improvements to its own memory. Nothing is guessed; everything is traceable and rollback-able.
 - **Keeps itself updated.** The plugin checks for new versions of itself and upgrades in place. You always run the latest harness.
 - **Stops quitting early.** Models sometimes stop mid-task. The harness detects premature stops, nudges continuation, and logs the behavior as evidence so the pattern can be corrected.
+- **Trusts nothing it's told.** A self-improving agent that blindly remembers everything would learn your mistakes as eagerly as your wins. So before any lesson becomes permanent, it's audited against ground truth and challenged by an adversarial reviewer. A memory has to earn its place — every time.
 - **Fits any project.** Memories and specs are scoped global or per-project, so each repo gets exactly the context it needs.
 
 **In short: you spend less time re-explaining your project, and your agent makes fewer repeat mistakes, every single week.**
@@ -93,6 +94,13 @@ The full skills library, injected into every session, including:
 **Premature-stop protection**
 - Detects when a model stops early after tool activity, logs it as evidence, and injects a continuation nudge into the system prompt so future sessions push tasks to completion.
 
+**Audit and red teaming (verify before you trust)**
+- The biggest risk a self-improving agent faces is learning the wrong lesson confidently. So every proposed refinement is screened before it touches your durable memory — by a programmatic audit gate *and* an adversarial reviewer.
+- **`harness_audit`** — a read-only validation tool that checks each proposed memory/spec op against ground truth: does the cited evidence actually exist? Is the body well-formed (team specs must carry the full fixed shape)? Does it clobber a higher-confidence memory? Is the scope consistent? Plus adversarial checks: single-session over-generalization, contested evidence (a later retry or session error that undermines the claim), and contradictions with trusted high-confidence memories. Anything weak is flagged with the exact reason.
+- **`harness-redteam`** — an independent adversarial reviewer subagent. It deliberately tries to *break* each proposal: hunting for counter-evidence in the full harness store, questioning whether the scope really holds, and demanding the evidence actually supports the claim. The refiner must survive the challenge before its changes go anywhere.
+- **Enforced gate, not advice** — `harness_apply` runs the same validation in code. Ops the audit rejects are refused outright; only the valid subset is applied, read-back verified against the written file, and reported with the snapshot id. A failed write is one `harness_rollback <id>` away.
+- **The flow, end to end:** propose → red-team challenge → `harness_audit` → apply only what passes → verify after apply → roll back on any read-back failure. The harness still improves every session — but only lessons that survived scrutiny become permanent.
+
 ### Commands
 
 | Command | Purpose |
@@ -104,7 +112,7 @@ The full skills library, injected into every session, including:
 
 ### Custom tools
 
-The harness exposes five tools for the `refiner` subagent (used by `/refine`): `harness_refine`, `harness_apply`, `harness_status`, `harness_history`, `harness_rollback`.
+The harness exposes seven tools for the `refiner` subagent (used by `/refine`): `harness_refine` (review evidence), `harness_audit` (validate proposed ops before applying), `harness_apply` (apply only ops that pass the gate, read-back verified), `harness_team` (read or list stored team-architecture specs), `harness_status`, `harness_history`, and `harness_rollback`.
 
 ---
 
@@ -148,20 +156,7 @@ The model applies to the `refiner` agent and the `/refine` + `/harness` commands
 
 ### Audit and red teaming
 
-Every refine run now verifies before it trusts:
-
-- **`harness_audit`** — validates proposed memory/spec ops against ground truth
-  before they are applied: evidence grounding, body structure, name-conflict and
-  scope consistency, plus adversarial checks (single-session over-generalization,
-  contested evidence, high-confidence contradictions). Read-only.
-- **Enforced gate** — `harness_apply` refuses ops the audit rejects, applies the
-  valid subset, read-back verifies each write, and returns the snapshot id so a
-  failed write can be rolled back with `harness_rollback`.
-- **`harness-redteam`** — an adversarial reviewer subagent that challenges the
-  refiner's proposals (counter-evidence, scope, grounding) before the audit gate.
-
-The `harness-refine` skill workflow is: propose ops -> red-team -> `harness_audit`
--> apply passing ops -> verify after apply (roll back on read-back failure).
+No configuration needed — verification is always on. Every proposed refinement runs through the `harness_audit` gate and the `harness-redteam` adversarial reviewer before it can become a durable memory; `harness_apply` enforces the same validation in code and read-back verifies every write. See *Audit and red teaming* under [What you get](#what-you-get) for how it works.
 
 ---
 
@@ -170,7 +165,7 @@ The `harness-refine` skill workflow is: propose ops -> red-team -> `harness_audi
 ```
 opencode-harness/          # the harness SOURCE (dev repo)
   src/                     #   plugin entry, evidence store, refine engine, updater
-  test/                    #   bun test suite (79 tests)
+  test/                    #   bun test suite (105 tests)
   scripts/                 #   build + install scripts
   assets/                  #   skill, command, and agent definitions
 .opencode/plugins/         # the INSTALL package (built, ready to load)
@@ -186,7 +181,7 @@ docs/superpowers/          # design specs and implementation plans
 ```bash
 cd opencode-harness
 bun install
-bun test              # run the suite (79 tests)
+bun test              # run the suite (105 tests)
 bun run build         # produces dist/harness.js with all deps inlined
 bun run install:harness  # install into ~/.config/opencode/ (dev use)
 ```
