@@ -12693,7 +12693,6 @@ function validateOps(global, project, ops) {
     const name = op.name;
     const reasons = [];
     const warnings = [];
-    const targetScopeDir = op.scope === "project" ? project : global;
     const existing = op.scope === "project" ? projectState.memories.concat(projectState.specs) : globalState.memories.concat(globalState.specs);
     const existingHit = existing.find((m) => m.name === name);
     if (op.kind === "memory" && op.specKind) {
@@ -12709,7 +12708,7 @@ function validateOps(global, project, ops) {
       }
     }
     const refs = op.evidence ?? [];
-    if (refs.length === 0) {
+    if (refs.length === 0 && op.op !== "delete") {
       warnings.push("no evidence refs; confidence is the only guard");
     } else {
       const unmatched = refs.filter((r) => !evidence.some((row) => evidenceRefMatches(row, r)));
@@ -12721,7 +12720,7 @@ function validateOps(global, project, ops) {
         warnings.push("evidence rests on a single session; lower confidence or gather more before promoting");
       }
       for (const row of matchedRows) {
-        const contested = evidence.some((other) => other.project === row.project && other.tool === row.tool && other.ts > row.ts && other.kind === "retry");
+        const contested = evidence.some((other) => other.project === row.project && other.tool === row.tool && other.ts > row.ts && (other.kind === "retry" || other.kind === "session_error"));
         if (contested) {
           warnings.push(`contested: a later retry exists for tool ${row.tool ?? "?"}; acknowledge counter-evidence`);
           break;
@@ -12736,7 +12735,7 @@ function validateOps(global, project, ops) {
         reasons.push(`conflict: ${name} already exists with a different body`);
       }
     }
-    if (op.scope === "global") {
+    if (op.scope === "global" && op.op !== "delete") {
       const projectDup = projectState.memories.concat(projectState.specs).find((m) => m.name === name);
       if (projectDup && projectDup.body !== body) {
         reasons.push(`global op would shadow a project ${projectDup.kind ?? "memory"}:${name} with a different body`);
@@ -12942,6 +12941,16 @@ var AUTO_REFINE_ENABLED = true;
 var AUTO_UPDATE_ENABLED = true;
 var UPDATE_CHECK_HOURS = 6;
 var UPDATE_REPO = "Skunk-Tech/opencode-super";
+var OPS_SCHEMA = tool.schema.array(tool.schema.object({
+  op: tool.schema.enum(["memory", "spec", "delete"]),
+  kind: tool.schema.enum(["memory", "spec"]),
+  specKind: tool.schema.enum(["skill", "subagent", "team"]).optional(),
+  name: tool.schema.string(),
+  scope: tool.schema.enum(["global", "project"]),
+  body: tool.schema.string(),
+  confidence: tool.schema.number().optional(),
+  evidence: tool.schema.array(tool.schema.string()).optional()
+}));
 function isPrematureStop(finish, sawToolCalls) {
   return finish === "stop" && sawToolCalls;
 }
@@ -13091,16 +13100,7 @@ Assess candidates on frequency, cost, risk, stability, and existing coverage. If
       harness_audit: tool({
         description: "Validate proposed harness ops against ground truth before applying. Read-only; never writes or snapshots. Checks evidence grounding, body structure, name conflicts, scope consistency, and adversarial concerns (single-session evidence, contested evidence, high-confidence contradictions). Returns a PASS/FAIL verdict per op with reasons.",
         args: {
-          ops: tool.schema.array(tool.schema.object({
-            op: tool.schema.enum(["memory", "spec", "delete"]),
-            kind: tool.schema.enum(["memory", "spec"]),
-            specKind: tool.schema.enum(["skill", "subagent", "team"]).optional(),
-            name: tool.schema.string(),
-            scope: tool.schema.enum(["global", "project"]),
-            body: tool.schema.string(),
-            confidence: tool.schema.number().optional(),
-            evidence: tool.schema.array(tool.schema.string()).optional()
-          })).describe("Refinement operations to validate.")
+          ops: OPS_SCHEMA.describe("Refinement operations to validate.")
         },
         async execute(args) {
           const ops = args.ops;
@@ -13121,16 +13121,7 @@ Assess candidates on frequency, cost, risk, stability, and existing coverage. If
       harness_apply: tool({
         description: "Apply concrete harness refinements. Snapshots state first; every write is rollback-able via harness_rollback.",
         args: {
-          ops: tool.schema.array(tool.schema.object({
-            op: tool.schema.enum(["memory", "spec", "delete"]),
-            kind: tool.schema.enum(["memory", "spec"]),
-            specKind: tool.schema.enum(["skill", "subagent", "team"]).optional(),
-            name: tool.schema.string(),
-            scope: tool.schema.enum(["global", "project"]),
-            body: tool.schema.string(),
-            confidence: tool.schema.number().optional(),
-            evidence: tool.schema.array(tool.schema.string()).optional()
-          })).describe("Refinement operations to apply.")
+          ops: OPS_SCHEMA.describe("Refinement operations to apply.")
         },
         async execute(args) {
           const ops = args.ops;
@@ -13144,7 +13135,7 @@ Assess candidates on frequency, cost, risk, stability, and existing coverage. If
           if (verified.length)
             lines.push(`Verified: ${verified.map((v) => `${v.kind}:${v.name}=${v.ok ? "ok" : "FAIL"}`).join(", ")}`);
           if (failedVerify.length)
-            lines.push(`ROLLBACK: snapshot ${snapshotID} — ${failedVerify.map((v) => v.name).join(", ")} did not write correctly`);
+            lines.push(`ROLLBACK: snapshot ${snapshotID} — ${failedVerify.map((v) => `${v.kind}:${v.name}`).join(", ")} did not write correctly`);
           return lines.join(`
 `);
         }
