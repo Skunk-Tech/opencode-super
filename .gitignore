@@ -4,3 +4,6 @@ opencode-harness/node_modules/
 
 # Runtime plugin state written by the installed plugin in this repo
 .opencode/harness/
+
+# Isolated worktrees
+.worktrees/
