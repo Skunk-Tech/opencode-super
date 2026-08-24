@@ -146,6 +146,23 @@ The model applies to the `refiner` agent and the `/refine` + `/harness` commands
 
 > **Note on the desktop app Settings GUI:** the opencode desktop Settings dialog currently has no plugin-settings panel, so this model is configured in `opencode.json` rather than through a settings checkbox. A native GUI picker for plugin settings would need an upstream opencode feature (a plugin settings panel); until then this config-file surface is the supported way to choose the model.
 
+### Audit and red teaming
+
+Every refine run now verifies before it trusts:
+
+- **`harness_audit`** — validates proposed memory/spec ops against ground truth
+  before they are applied: evidence grounding, body structure, name-conflict and
+  scope consistency, plus adversarial checks (single-session over-generalization,
+  contested evidence, high-confidence contradictions). Read-only.
+- **Enforced gate** — `harness_apply` refuses ops the audit rejects, applies the
+  valid subset, read-back verifies each write, and returns the snapshot id so a
+  failed write can be rolled back with `harness_rollback`.
+- **`harness-redteam`** — an adversarial reviewer subagent that challenges the
+  refiner's proposals (counter-evidence, scope, grounding) before the audit gate.
+
+The `harness-refine` skill workflow is: propose ops -> red-team -> `harness_audit`
+-> apply passing ops -> verify after apply (roll back on read-back failure).
+
 ---
 
 ## Repository layout

@@ -12330,8 +12330,8 @@ function tool(input) {
 }
 tool.schema = exports_external;
 // src/plugin.ts
-import fs5 from "fs";
-import path5 from "path";
+import fs6 from "fs";
+import path6 from "path";
 
 // src/paths.ts
 import path from "path";
@@ -12583,6 +12583,8 @@ Prefer to complete your work rather than stop early. If a task is unfinished, co
 }
 
 // src/refine.ts
+import fs3 from "fs";
+import path3 from "path";
 function gatherEvidenceSummary(dir, focus, project) {
   const rows = readEvidence(dir);
   const scoped = project ? rows.filter((r) => r.project === project) : rows;
@@ -12599,16 +12601,30 @@ function gatherEvidenceSummary(dir, focus, project) {
 }
 function applyOps(global, project, ops) {
   if (ops.length === 0)
-    return { snapshotID: "", applied: [] };
+    return { snapshotID: "", applied: [], rejected: [], verified: [] };
+  const verdicts = validateOps(global, project, ops);
   const now = new Date().toISOString();
   const applied = [];
+  const rejected = [];
+  const verified = [];
+  const validOps = ops.filter((_, index) => {
+    const verdict = verdicts.find((v) => v.index === index);
+    if (verdict && verdict.reasons.length > 0) {
+      rejected.push({ op: `${verdict.op.op}:${verdict.op.kind}:${verdict.op.name}`, reason: verdict.reasons.join("; ") });
+      return false;
+    }
+    return true;
+  });
   const globalState = loadState(global);
   const projectState = loadState(project);
-  const touchesProject = ops.some((op) => op.scope === "project");
+  const touchesProject = validOps.some((op) => op.scope === "project");
   const snapshotID = snapshot(global);
   if (touchesProject)
     snapshot(project, snapshotID);
-  for (const op of ops) {
+  if (validOps.length === 0) {
+    return { snapshotID, applied: [], rejected, verified: [] };
+  }
+  for (const op of validOps) {
     const dir = op.scope === "project" ? project : global;
     if (op.op === "delete") {
       deleteEntry(dir, op.kind, op.name);
@@ -12641,30 +12657,122 @@ function applyOps(global, project, ops) {
       applied.push(`spec:${op.name}`);
     }
   }
-  return { snapshotID, applied };
+  for (const op of validOps) {
+    const dir = op.scope === "project" ? project : global;
+    if (op.op === "delete") {
+      const stillThere = op.kind === "memory" ? fs3.existsSync(path3.join(dir, "memories", `${op.name}.md`)) : fs3.existsSync(path3.join(dir, "specs", `${op.name}.md`));
+      verified.push({ name: op.name, kind: op.kind, ok: !stillThere });
+      continue;
+    }
+    const found = op.kind === "memory" ? listMemories(dir).find((m) => m.name === op.name && m.body.trim() === (op.body ?? "").trim()) : listSpecs(dir).find((s) => s.name === op.name && s.body.trim() === (op.body ?? "").trim());
+    verified.push({ name: op.name, kind: op.kind, ok: Boolean(found) });
+  }
+  return { snapshotID, applied, rejected, verified };
+}
+function evidenceRefMatches(row, ref) {
+  const trimmed = ref.trim();
+  if (!trimmed)
+    return false;
+  const exact = `${row.ts} ${row.kind}${row.tool ? ` ${row.tool}` : ""}`;
+  if (trimmed === exact)
+    return true;
+  if (trimmed === row.ts)
+    return true;
+  if (trimmed === row.kind)
+    return true;
+  if (row.tool && trimmed === row.tool)
+    return true;
+  return exact.includes(trimmed);
+}
+var TEAM_FIELDS = ["Pattern:", "Task type:", "Roles:", "Coordination:", "Use when:"];
+function validateOps(global, project, ops) {
+  const evidence = readEvidence(global);
+  const globalState = loadState(global);
+  const projectState = loadState(project);
+  return ops.map((op, index) => {
+    const name = op.name;
+    const reasons = [];
+    const warnings = [];
+    const targetScopeDir = op.scope === "project" ? project : global;
+    const existing = op.scope === "project" ? projectState.memories.concat(projectState.specs) : globalState.memories.concat(globalState.specs);
+    const existingHit = existing.find((m) => m.name === name);
+    if (op.kind === "memory" && op.specKind) {
+      reasons.push(`specKind is only valid on spec ops (op#${index} memory:${name})`);
+    }
+    const body = (op.body ?? "").trim();
+    if (op.op !== "delete" && !body)
+      reasons.push(`empty body for ${op.kind}:${name}`);
+    if (op.kind === "spec" && op.specKind === "team") {
+      for (const field of TEAM_FIELDS) {
+        if (!body.includes(field))
+          reasons.push(`team spec missing "${field}" field`);
+      }
+    }
+    const refs = op.evidence ?? [];
+    if (refs.length === 0) {
+      warnings.push("no evidence refs; confidence is the only guard");
+    } else {
+      const unmatched = refs.filter((r) => !evidence.some((row) => evidenceRefMatches(row, r)));
+      if (unmatched.length > 0)
+        reasons.push(`unmatched evidence refs: ${unmatched.join(", ")}`);
+      const matchedRows = evidence.filter((row) => refs.some((r) => evidenceRefMatches(row, r)));
+      const sessions = new Set(matchedRows.map((r) => r.sessionID));
+      if (sessions.size === 1 && matchedRows.length > 0) {
+        warnings.push("evidence rests on a single session; lower confidence or gather more before promoting");
+      }
+      for (const row of matchedRows) {
+        const contested = evidence.some((other) => other.project === row.project && other.tool === row.tool && other.ts > row.ts && other.kind === "retry");
+        if (contested) {
+          warnings.push(`contested: a later retry exists for tool ${row.tool ?? "?"}; acknowledge counter-evidence`);
+          break;
+        }
+      }
+    }
+    if (op.op !== "delete" && existingHit) {
+      const existingBody = existingHit.body;
+      if (existingBody === body) {} else if (existingHit.confidence >= 0.7) {
+        reasons.push(`conflict: overwrites a high-confidence (${existingHit.confidence}) existing ${existingHit.kind ?? "memory"}:${name} with a different body`);
+      } else {
+        reasons.push(`conflict: ${name} already exists with a different body`);
+      }
+    }
+    if (op.scope === "global") {
+      const projectDup = projectState.memories.concat(projectState.specs).find((m) => m.name === name);
+      if (projectDup && projectDup.body !== body) {
+        reasons.push(`global op would shadow a project ${projectDup.kind ?? "memory"}:${name} with a different body`);
+      }
+    }
+    if (op.confidence !== undefined && (op.confidence < 0 || op.confidence > 1)) {
+      warnings.push(`confidence ${op.confidence} outside 0..1`);
+    }
+    if (op.op === "delete" && !existingHit) {
+      warnings.push(`delete target ${name} does not exist in ${op.scope} scope`);
+    }
+    return { index, op, name, pass: reasons.length === 0, reasons, warnings };
+  });
 }
 
 // src/autorefine.ts
-import fs3 from "fs";
-import path3 from "path";
+import fs4 from "fs";
+import path4 from "path";
 var AUTO_REFINE_MIN_EVIDENCE = 5;
 var AUTO_REFINE_MAX_OPS = 3;
 function refineStateFile(dir) {
-  return path3.join(dir, "refine-state.json");
+  return path4.join(dir, "refine-state.json");
 }
 function readRefineState(dir) {
   const file2 = refineStateFile(dir);
-  if (!fs3.existsSync(file2))
+  if (!fs4.existsSync(file2))
     return {};
   try {
-    return JSON.parse(fs3.readFileSync(file2, "utf8"));
+    return JSON.parse(fs4.readFileSync(file2, "utf8"));
   } catch {
     return {};
   }
 }
 function writeRefineState(dir, state) {
   ensureDir(dir);
-  fs3.writeFileSync(refineStateFile(dir), JSON.stringify(state, null, 2), "utf8");
+  fs4.writeFileSync(refineStateFile(dir), JSON.stringify(state, null, 2), "utf8");
 }
 function newEvidenceSince(rows, watermark) {
   if (!watermark)
@@ -12719,8 +12827,8 @@ async function runAutoRefine(client, directory, global, project, opts = {}) {
 }
 
 // src/updater.ts
-import fs4 from "fs";
-import path4 from "path";
+import fs5 from "fs";
+import path5 from "path";
 import { fileURLToPath } from "url";
 var GITHUB_API = "https://api.github.com/repos";
 var RAW_GITHUB = "https://raw.githubusercontent.com";
@@ -12739,19 +12847,19 @@ function versionMarkerFile(ownPath) {
 }
 function readVersionMarker(ownPath) {
   const file2 = versionMarkerFile(ownPath);
-  if (!fs4.existsSync(file2))
+  if (!fs5.existsSync(file2))
     return;
-  const content = fs4.readFileSync(file2, "utf8").trim();
+  const content = fs5.readFileSync(file2, "utf8").trim();
   return content.length > 0 ? content : undefined;
 }
 function writeVersionMarker(ownPath, sha) {
-  fs4.writeFileSync(versionMarkerFile(ownPath), sha, "utf8");
+  fs5.writeFileSync(versionMarkerFile(ownPath), sha, "utf8");
 }
 function atomicReplace(filePath, content) {
-  const dir = path4.dirname(filePath);
-  const tmp = path4.join(dir, `.harness.tmp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
-  fs4.writeFileSync(tmp, content, "utf8");
-  fs4.renameSync(tmp, filePath);
+  const dir = path5.dirname(filePath);
+  const tmp = path5.join(dir, `.harness.tmp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+  fs5.writeFileSync(tmp, content, "utf8");
+  fs5.renameSync(tmp, filePath);
 }
 async function fetchLatestSha(repo, fetcher = fetch) {
   try {
@@ -12811,17 +12919,17 @@ function recordSessionProject(sessionID, project) {
   if (!project)
     return;
   ensureDir(globalHarnessDir());
-  const file2 = path5.join(globalHarnessDir(), "sessions.json");
+  const file2 = path6.join(globalHarnessDir(), "sessions.json");
   let map2 = {};
-  if (fs5.existsSync(file2)) {
+  if (fs6.existsSync(file2)) {
     try {
-      map2 = JSON.parse(fs5.readFileSync(file2, "utf8"));
+      map2 = JSON.parse(fs6.readFileSync(file2, "utf8"));
     } catch {
       map2 = {};
     }
   }
   map2[sessionID] = project;
-  fs5.writeFileSync(file2, JSON.stringify(map2, null, 2), "utf8");
+  fs6.writeFileSync(file2, JSON.stringify(map2, null, 2), "utf8");
 }
 var REFINE_TEMPLATE = `Run the harness refine workflow (load the \`harness-refine\` skill) and apply evidence-backed refinements. Focus: $ARGUMENTS (optional).`;
 var HARNESS_TEMPLATE = `Handle a harness management request using the appropriate harness tools:
@@ -12861,10 +12969,10 @@ var HarnessPlugin = async ({ directory, client }, options) => {
     activity.set(sessionID, cur);
   };
   const ownPath = ownBundlePath();
-  const updateStateFile = path5.join(global, "update-state.json");
+  const updateStateFile = path6.join(global, "update-state.json");
   const recordUpdateState = (state) => {
     try {
-      fs5.writeFileSync(updateStateFile, JSON.stringify({ ...state, checkedAt: new Date().toISOString() }, null, 2), "utf8");
+      fs6.writeFileSync(updateStateFile, JSON.stringify({ ...state, checkedAt: new Date().toISOString() }, null, 2), "utf8");
     } catch {}
   };
   const checkUpdate = () => {
@@ -12899,6 +13007,15 @@ var HarnessPlugin = async ({ directory, client }, options) => {
           model: pluginOptions.model || undefined,
           permission: { edit: "deny", bash: "deny", skill: { "harness-refine": "allow" } },
           prompt: "You are the refiner for the opencode Continual Harness. You analyze evidence, apply conservative refinements via the harness_* tools, and report results. You never edit files directly."
+        };
+      }
+      if (!config2.agent["harness-redteam"]) {
+        config2.agent["harness-redteam"] = {
+          description: "Adversarial reviewer. Challenges refiner-proposed harness ops for counter-evidence, scope, and grounding.",
+          mode: "subagent",
+          model: pluginOptions.model || undefined,
+          permission: { edit: "deny", bash: "deny" },
+          prompt: "You are the adversary for the opencode Continual Harness. Given a set of proposed harness ops (memory/spec writes or deletes) and the full evidence summary, challenge each one: find counter-evidence in the full harness store, question scope, demand the evidence supports the claim, flag over-generalization and single-session memories, and recommend accept/revise/reject per op. You never edit files directly; you only report challenges."
         };
       }
     },
@@ -12968,7 +13085,37 @@ ${gatherEvidenceSummary(global, focus, directory)}
 ## Current state
 ${JSON.stringify(loadMergedState(global, project), null, 2)}
 
-Assess candidates on frequency, cost, risk, stability, and existing coverage. If a candidate scores strong (>=0.6), propose it via harness_apply with kind=memory|spec|delete (use specKind=skill|subagent|team for spec writes), scope=global for cross-project or scope=project for this repo, and the exact body. For team specs, use the fixed body shape (Pattern/Task type/Roles/Coordination/Use when) and consult the harness-refine skill's pattern reference. For new skills/agents/teams, only if repeated friction justifies it. Otherwise report 'No change recommended'.`;
+Assess candidates on frequency, cost, risk, stability, and existing coverage. If a candidate scores strong (>=0.6), propose it via harness_apply with kind=memory|spec|delete (use specKind=skill|subagent|team for spec writes), scope=global for cross-project or scope=project for this repo, and the exact body. For team specs, use the fixed body shape (Pattern/Task type/Roles/Coordination/Use when) and consult the harness-refine skill's pattern reference. For new skills/agents/teams, only if repeated friction justifies it. IMPORTANT: before applying, run the full harness-refine workflow — dispatch the harness-redteam subagent to challenge your ops, then call harness_audit on the draft ops and fix any FAIL or addressed warnings. Otherwise report 'No change recommended'.`;
+        }
+      }),
+      harness_audit: tool({
+        description: "Validate proposed harness ops against ground truth before applying. Read-only; never writes or snapshots. Checks evidence grounding, body structure, name conflicts, scope consistency, and adversarial concerns (single-session evidence, contested evidence, high-confidence contradictions). Returns a PASS/FAIL verdict per op with reasons.",
+        args: {
+          ops: tool.schema.array(tool.schema.object({
+            op: tool.schema.enum(["memory", "spec", "delete"]),
+            kind: tool.schema.enum(["memory", "spec"]),
+            specKind: tool.schema.enum(["skill", "subagent", "team"]).optional(),
+            name: tool.schema.string(),
+            scope: tool.schema.enum(["global", "project"]),
+            body: tool.schema.string(),
+            confidence: tool.schema.number().optional(),
+            evidence: tool.schema.array(tool.schema.string()).optional()
+          })).describe("Refinement operations to validate.")
+        },
+        async execute(args) {
+          const ops = args.ops;
+          const verdicts = validateOps(global, project, ops);
+          if (verdicts.length === 0)
+            return "No ops to audit.";
+          return verdicts.map((v) => {
+            const parts = [`${v.pass ? "PASS" : "FAIL"} op#${v.index} ${v.op.op}:${v.op.kind}:${v.op.name}`];
+            if (v.reasons.length)
+              parts.push(`reasons: ${v.reasons.join("; ")}`);
+            if (v.warnings.length)
+              parts.push(`warnings: ${v.warnings.join("; ")}`);
+            return parts.join(" | ");
+          }).join(`
+`);
         }
       }),
       harness_apply: tool({
@@ -12987,9 +13134,19 @@ Assess candidates on frequency, cost, risk, stability, and existing coverage. If
         },
         async execute(args) {
           const ops = args.ops;
-          const { snapshotID, applied } = applyOps(global, project, ops);
-          return `Applied ${applied.length} op(s). Snapshot: ${snapshotID}
-Ops: ${applied.join(", ")}`;
+          const { snapshotID, applied, rejected, verified } = applyOps(global, project, ops);
+          const lines = [`Applied ${applied.length} op(s). Snapshot: ${snapshotID}`];
+          if (applied.length)
+            lines.push(`Applied: ${applied.join(", ")}`);
+          if (rejected.length)
+            lines.push(`Rejected (${rejected.length}): ${rejected.map((r) => `${r.op} — ${r.reason}`).join("; ")}`);
+          const failedVerify = verified.filter((v) => !v.ok);
+          if (verified.length)
+            lines.push(`Verified: ${verified.map((v) => `${v.kind}:${v.name}=${v.ok ? "ok" : "FAIL"}`).join(", ")}`);
+          if (failedVerify.length)
+            lines.push(`ROLLBACK: snapshot ${snapshotID} — ${failedVerify.map((v) => v.name).join(", ")} did not write correctly`);
+          return lines.join(`
+`);
         }
       }),
       harness_team: tool({
@@ -13024,8 +13181,8 @@ ${hit.body}`;
           const refine2 = readRefineState(project);
           let update = "no check yet";
           try {
-            if (fs5.existsSync(updateStateFile)) {
-              const u = JSON.parse(fs5.readFileSync(updateStateFile, "utf8"));
+            if (fs6.existsSync(updateStateFile)) {
+              const u = JSON.parse(fs6.readFileSync(updateStateFile, "utf8"));
               update = u.pendingRestart ? `update available (${u.latest}), restart opencode to load` : `up to date (checked ${u.checkedAt})`;
             }
           } catch {}
