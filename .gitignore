@@ -8,5 +8,8 @@ opencode-harness/node_modules/
 # Iterative execution checkpoint (per-project, gitignored)
 .opencode/iteration-state.json
 
+# Context map (regenerable structural cache, like node_modules)
+graft/
+
 # Isolated worktrees
 .worktrees/
