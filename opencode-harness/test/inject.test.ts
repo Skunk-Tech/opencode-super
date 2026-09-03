@@ -85,3 +85,39 @@ test("buildCompactionContext excludes team-kind specs", () => {
   expect(all).not.toContain("Pattern: supervisor");
   expect(all).not.toContain("team1");
 });
+
+import { buildStateSummary, MAX_BODY_CHARS, COMPACTION_TOTAL_MAX } from "../src/inject";
+
+const longBody = "x".repeat(MAX_BODY_CHARS * 2);
+
+function mkMemory(name: string, body: string, confidence = 0.5): any {
+  return { name, scope: "global", confidence, created: "t", updated: "t", evidence: [], body };
+}
+
+test("buildInjection truncates oversized memory bodies to MAX_BODY_CHARS", () => {
+  const s: HarnessState = {
+    version: 1, updated: "t",
+    memories: [mkMemory("big", longBody, 0.95)],
+    specs: [],
+  };
+  const inj = buildInjection(s, "project");
+  // body appears truncated, not in full
+  expect(inj.length).toBeLessThan(MAX_BODY_CHARS + 1000);
+  expect(inj).not.toContain(longBody);
+});
+
+test("buildCompactionContext total is bounded even with a huge store", () => {
+  const many = Array.from({ length: 60 }, (_, i) => mkMemory(`mem-${i}`, longBody, 0.9));
+  const s: HarnessState = { version: 1, updated: "t", memories: many, specs: [] };
+  const ctx = buildCompactionContext(s, "project");
+  const total = ctx.join("\n").length;
+  expect(total).toBeLessThan(COMPACTION_TOTAL_MAX);
+});
+
+test("buildStateSummary reports counts and omits overflow beyond budget", () => {
+  const many = Array.from({ length: 60 }, (_, i) => mkMemory(`mem-${i}`, longBody, 0.9));
+  const s: HarnessState = { version: 1, updated: "t", memories: many, specs: [] };
+  const summary = buildStateSummary(s, "project");
+  expect(summary).toContain("memories: 60");
+  expect(summary.length).toBeLessThan(COMPACTION_TOTAL_MAX);
+});

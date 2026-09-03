@@ -6,6 +6,10 @@ export const TRUNCATE_ARGS = 200;
 export const TRUNCATE_OUTPUT = 500;
 export const MAX_PER_SESSION = 25;
 
+/** Kinds still written to evidence. Lifecycle kinds (premature_stop, session_created,
+ *  session_idle) were removed as auto-refine fuel — see the token-burn fix. */
+export const WRITABLE_KINDS = new Set(["tool_failure", "retry", "session_error"]);
+
 export type EvidenceEntry = {
   ts: string;
   sessionID: string;
@@ -27,6 +31,9 @@ export function evidenceFile(dir: string): string {
 }
 
 export function appendEvidence(dir: string, entry: EvidenceEntry): void {
+  // Defensive guard: lifecycle rows were the auto-refine feedback fuel (token-burn fix).
+  // Only real signal may ever be persisted. Legacy rows already on disk still parse.
+  if (!WRITABLE_KINDS.has(entry.kind)) return;
   ensureDir(dir);
   const file = evidenceFile(dir);
   const normalized: EvidenceEntry = {

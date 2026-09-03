@@ -3,14 +3,20 @@ import fs from "fs";
 import path from "path";
 import { globalHarnessDir, projectHarnessDir, ensureDir } from "./paths";
 import { appendEvidence, loadState, loadMergedState, readEvidence, listSnapshots, rollback } from "./store";
-import { buildInjection, buildCompactionContext, buildContinuationNudge } from "./inject";
+import { buildInjection, buildCompactionContext, buildContinuationNudge, buildStateSummary } from "./inject";
 import { gatherEvidenceSummary, applyOps, validateOps, type RefineOp } from "./refine";
-import { runAutoRefine, readRefineState, AUTO_REFINE_MIN_EVIDENCE, AUTO_REFINE_MAX_OPS, type AutoRefineClient } from "./autorefine";
+import { runAutoRefine, readRefineState, AUTO_REFINE_MIN_EVIDENCE, AUTO_REFINE_MAX_OPS, AUTO_REFINE_COOLDOWN_MS, type AutoRefineClient } from "./autorefine";
 import { checkForUpdates, ownBundlePath, readVersionMarker } from "./updater";
 
 export type HarnessPluginOptions = {
   /** Registered model (provider/modelID) used for the plugin's refiner work. */
   model?: string;
+  /** Override for automatic refine (defaults to AUTO_REFINE_ENABLED). */
+  autoRefineEnabled?: boolean;
+  /** Minimum real-signal evidence rows that trigger an auto-refine. */
+  minEvidence?: number;
+  /** Cooldown between auto-refine runs, in ms. */
+  cooldownMs?: number;
 };
 
 export function looksLikeError(output: string | undefined, metadata?: Record<string, unknown> | null, tool?: string): boolean {
@@ -21,8 +27,21 @@ export function looksLikeError(output: string | undefined, metadata?: Record<str
   return false;
 }
 
+const sessionProjectSeen = new Set<string>();
+const lastFailureKinds = new Map<string, "tool_failure" | "retry">();
+
+/**
+ * Map sessionID -> project so sessions can be attributed to their working dir.
+ * sessions.json can grow to hundreds of KB; a rewrite on every tool execution
+ * (the old behaviour) is massive write amplification across a fleet. We only
+ * touch disk when a genuinely NEW session id appears, and always merge from the
+ * on-disk file first so concurrent plugin instances cannot clobber each other.
+ */
 function recordSessionProject(sessionID: string, project: string): void {
   if (!project) return;
+  const key = `${sessionID}|${project}`;
+  if (sessionProjectSeen.has(key)) return;
+  sessionProjectSeen.add(key);
   ensureDir(globalHarnessDir());
   const file = path.join(globalHarnessDir(), "sessions.json");
   let map: Record<string, string> = {};
@@ -30,9 +49,12 @@ function recordSessionProject(sessionID: string, project: string): void {
     try {
       map = JSON.parse(fs.readFileSync(file, "utf8"));
     } catch {
-      // corrupt sessions.json: fall back to an empty map so evidence capture continues
       map = {};
     }
+  }
+  if (map[sessionID] === project) {
+    // Already persisted (e.g. written by another plugin instance).
+    return;
   }
   map[sessionID] = project;
   fs.writeFileSync(file, JSON.stringify(map, null, 2), "utf8");
@@ -63,16 +85,58 @@ const OPS_SCHEMA = tool.schema.array(tool.schema.object({
   evidence: tool.schema.array(tool.schema.string()).optional(),
 }));
 
-type SessionActivity = { lastFinish?: string; sawToolCalls: boolean };
+export type HarnessEventContext = {
+  directory: string;
+  global: string;
+  project: string;
+  client: AutoRefineClient;
+  autoRefineEnabled: boolean;
+  minEvidence: number;
+  maxOps: number;
+  cooldownMs: number;
+  model?: string;
+};
 
-export function isPrematureStop(finish: string | undefined, sawToolCalls: boolean): boolean {
-  return finish === "stop" && sawToolCalls;
+export type HarnessEventLike = {
+  type: string;
+  properties?: Record<string, any>;
+};
+
+/**
+ * Handle a single harness event. Pure and dependency-injectable so it can be
+ * tested against temp dirs instead of the real global harness store.
+ *
+ * Evidence capture is intentionally SIGNAL-ONLY:
+ *  - session.error  -> a real failure worth recording (auth, overflow, etc.)
+ *  - session.idle   -> triggers auto-refine, but records NOTHING (lifecycle noise)
+ *  - session.created -> records NOTHING (lifecycle noise)
+ *  - premature_stop  -> REMOVED. The old finish==="stop" && sawToolCalls detector
+ *    fired on every normal tool-using session (opencode ends a normal turn with
+ *    finish "stop" after tool round-trips), manufacturing ~9k false evidence rows
+ *    that drove auto-refine in a self-sustaining loop.
+ */
+export async function handleHarnessEvent(ctx: HarnessEventContext, event: HarnessEventLike): Promise<void> {
+  const props = event.properties ?? {};
+  const id = typeof props.sessionID === "string" ? props.sessionID : (props.info as { id?: string } | undefined)?.id;
+  if (!id) return;
+  if (event.type === "session.error") {
+    appendEvidence(ctx.global, { ts: new Date().toISOString(), sessionID: id, kind: "session_error", project: ctx.directory });
+  } else if (event.type === "session.idle") {
+    await runAutoRefine(ctx.client, ctx.directory, ctx.global, ctx.project, {
+      enabled: ctx.autoRefineEnabled,
+      minEvidence: ctx.minEvidence,
+      maxOps: ctx.maxOps,
+      cooldownMs: ctx.cooldownMs,
+      parentID: id,
+      model: ctx.model,
+    });
+  }
+  // session.created and all message.updated lifecycle events are intentionally ignored.
 }
 
 export const HarnessPlugin: Plugin = async ({ directory, client }, options) => {
   const global = globalHarnessDir();
   const project = projectHarnessDir(directory);
-  const activity = new Map<string, SessionActivity>();
   const pluginOptions = (options ?? {}) as HarnessPluginOptions;
 
   // The SDK client returns { data, error } shapes; adapt it to the AutoRefineClient contract
@@ -85,14 +149,6 @@ export const HarnessPlugin: Plugin = async ({ directory, client }, options) => {
       },
       promptAsync: (opts) => client.session.promptAsync(opts as Parameters<typeof client.session.promptAsync>[0]),
     },
-  };
-
-  const recordFinish = (sessionID: string, finish: string | undefined): void => {
-    if (!sessionID || finish === undefined) return;
-    const cur = activity.get(sessionID) ?? { sawToolCalls: false };
-    cur.lastFinish = finish;
-    if (finish === "tool-calls") cur.sawToolCalls = true;
-    activity.set(sessionID, cur);
   };
 
   const ownPath = ownBundlePath();
@@ -152,9 +208,12 @@ export const HarnessPlugin: Plugin = async ({ directory, client }, options) => {
       recordSessionProject(input.sessionID, directory);
       const failure = looksLikeError(output.output, output.metadata, input.tool);
       if (!failure) return;
-      const rows = readEvidence(global);
-      const lastSameTool = rows.filter((r) => r.sessionID === input.sessionID && r.tool === input.tool).slice(-1)[0];
-      const isRetry = lastSameTool && lastSameTool.kind === "tool_failure";
+      // Retry detection used to re-read and re-parse the entire evidence file on
+      // every failure; with a 15MB store that is huge amplification across a
+      // fleet. Track the last outcome per (session, tool) in memory instead.
+      const retryKey = `${input.sessionID}|${input.tool}`;
+      const isRetry = lastFailureKinds.get(retryKey) === "tool_failure";
+      lastFailureKinds.set(retryKey, isRetry ? "retry" : "tool_failure");
       appendEvidence(global, {
         ts: new Date().toISOString(),
         sessionID: input.sessionID,
@@ -167,35 +226,37 @@ export const HarnessPlugin: Plugin = async ({ directory, client }, options) => {
     },
 
     event: async ({ event }) => {
-      const props = (event as { properties?: Record<string, any> }).properties ?? {};
-      const id = typeof props.sessionID === "string" ? props.sessionID : (props.info as { id?: string } | undefined)?.id;
-      if (!id) return;
-      if (event.type === "message.updated") {
-        const info = props.info as { role?: string; finish?: string } | undefined;
-        if (info?.role === "assistant") recordFinish(id, info.finish);
-      } else if (event.type === "session.error") {
-        appendEvidence(global, { ts: new Date().toISOString(), sessionID: id, kind: "session_error", project: directory });
-      } else if (event.type === "session.idle") {
-        const cur = activity.get(id);
-        if (isPrematureStop(cur?.lastFinish, cur?.sawToolCalls ?? false)) {
-          appendEvidence(global, { ts: new Date().toISOString(), sessionID: id, kind: "premature_stop", finish: cur?.lastFinish, project: directory });
-        }
-        appendEvidence(global, { ts: new Date().toISOString(), sessionID: id, kind: "session_idle", project: directory });
-        activity.delete(id);
-        void runAutoRefine(refineClient, directory, global, project, { enabled: AUTO_REFINE_ENABLED, minEvidence: AUTO_REFINE_MIN_EVIDENCE, maxOps: AUTO_REFINE_MAX_OPS, parentID: id, model: pluginOptions.model });
-      } else if (event.type === "session.created") {
-        appendEvidence(global, { ts: new Date().toISOString(), sessionID: id, kind: "session_created", project: directory });
-      }
+      await handleHarnessEvent(
+        {
+          directory,
+          global,
+          project,
+          client: refineClient,
+          autoRefineEnabled: pluginOptions.autoRefineEnabled ?? AUTO_REFINE_ENABLED,
+          minEvidence: pluginOptions.minEvidence ?? AUTO_REFINE_MIN_EVIDENCE,
+          maxOps: AUTO_REFINE_MAX_OPS,
+          cooldownMs: pluginOptions.cooldownMs ?? AUTO_REFINE_COOLDOWN_MS,
+          model: pluginOptions.model,
+        },
+        event as HarnessEventLike,
+      );
     },
 
     "experimental.chat.system.transform": async (_input, output) => {
-      const injection = buildInjection(loadMergedState(global, project), "project");
-      if (injection) output.system.push(injection);
-      output.system.push(buildContinuationNudge());
+      if (!output.system.some((s) => typeof s === "string" && s.includes("<harness-memories"))) {
+        const injection = buildInjection(loadMergedState(global, project), "project");
+        if (injection) output.system.push(injection);
+      }
+      if (!output.system.some((s) => typeof s === "string" && s.includes("<harness-continuation"))) {
+        output.system.push(buildContinuationNudge());
+      }
     },
 
     "experimental.session.compacting": async (_input, output) => {
-      output.context.push(...buildCompactionContext(loadMergedState(global, project), "project"));
+      const hasMemories = output.context.some((c) => typeof c === "string" && c.includes("## Harness memories"));
+      if (!hasMemories) {
+        output.context.push(...buildCompactionContext(loadMergedState(global, project), "project"));
+      }
     },
 
     tool: {
@@ -206,7 +267,7 @@ export const HarnessPlugin: Plugin = async ({ directory, client }, options) => {
         },
         async execute(args) {
           const focus = (args as { focus?: string }).focus;
-          return `## Harness evidence (recent)\n${gatherEvidenceSummary(global, focus, directory)}\n\n## Current state\n${JSON.stringify(loadMergedState(global, project), null, 2)}\n\nAssess candidates on frequency, cost, risk, stability, and existing coverage. If a candidate scores strong (>=0.6), propose it via harness_apply with kind=memory|spec|delete (use specKind=skill|subagent|team for spec writes), scope=global for cross-project or scope=project for this repo, and the exact body. For team specs, use the fixed body shape (Pattern/Task type/Roles/Coordination/Use when) and consult the harness-refine skill's pattern reference. For new skills/agents/teams, only if repeated friction justifies it. IMPORTANT: before applying, run the full harness-refine workflow — dispatch the harness-redteam subagent to challenge your ops, then call harness_audit on the draft ops and fix any FAIL or addressed warnings. Otherwise report 'No change recommended'.`;
+          return `## Harness evidence (recent)\n${gatherEvidenceSummary(global, focus, directory)}\n\n## Current state\n${buildStateSummary(loadMergedState(global, project), "project")}\n\nAssess candidates on frequency, cost, risk, stability, and existing coverage. If a candidate scores strong (>=0.6), propose it via harness_apply with kind=memory|spec|delete (use specKind=skill|subagent|team for spec writes), scope=global for cross-project or scope=project for this repo, and the exact body. For team specs, use the fixed body shape (Pattern/Task type/Roles/Coordination/Use when) and consult the harness-refine skill's pattern reference. For new skills/agents/teams, only if repeated friction justifies it. IMPORTANT: before applying, run the full harness-refine workflow — dispatch the harness-redteam subagent to challenge your ops, then call harness_audit on the draft ops and fix any FAIL or addressed warnings. Otherwise report 'No change recommended'.`;
         },
       }),
 

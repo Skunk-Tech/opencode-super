@@ -1,17 +1,47 @@
 import { expect, test } from "bun:test";
-import { looksLikeError, isPrematureStop, HarnessPlugin } from "../src/plugin";
+import { looksLikeError, handleHarnessEvent, HarnessPlugin } from "../src/plugin";
+import { appendEvidence, readEvidence } from "../src/store";
+import { tmpDir } from "./helpers";
 import fs from "fs";
 import os from "os";
 import path from "path";
 
-test("isPrematureStop flags finish:stop after tool activity", () => {
-  expect(isPrematureStop("stop", true)).toBe(true);
+const noopClient: any = { session: { async create() { return { id: "s" }; }, async promptAsync() { return {}; } } };
+
+test("handleHarnessEvent records nothing for session.created (lifecycle noise dropped)", async () => {
+  const { dir, cleanup } = tmpDir();
+  try {
+    await handleHarnessEvent({ directory: "/work", global: dir, project: dir, client: noopClient, autoRefineEnabled: true, minEvidence: 5, maxOps: 3, cooldownMs: 0 }, { type: "session.created", properties: { sessionID: "s1" } });
+    expect(readEvidence(dir).length).toBe(0);
+  } finally { cleanup(); }
 });
 
-test("isPrematureStop does not flag a clean stop without prior tool activity", () => {
-  expect(isPrematureStop("stop", false)).toBe(false);
-  expect(isPrematureStop(undefined, true)).toBe(false);
-  expect(isPrematureStop("tool-calls", true)).toBe(false);
+test("handleHarnessEvent records nothing for session.idle when no prior failures (no premature_stop/session_idle noise)", async () => {
+  const { dir, cleanup } = tmpDir();
+  try {
+    await handleHarnessEvent({ directory: "/work", global: dir, project: dir, client: noopClient, autoRefineEnabled: true, minEvidence: 5, maxOps: 3, cooldownMs: 0 }, { type: "session.idle", properties: { sessionID: "s1" } });
+    expect(readEvidence(dir).length).toBe(0);
+  } finally { cleanup(); }
+});
+
+test("handleHarnessEvent records session.error (real signal kept)", async () => {
+  const { dir, cleanup } = tmpDir();
+  try {
+    await handleHarnessEvent({ directory: "/work", global: dir, project: dir, client: noopClient, autoRefineEnabled: true, minEvidence: 5, maxOps: 3, cooldownMs: 0 }, { type: "session.error", properties: { sessionID: "s1" } });
+    const rows = readEvidence(dir);
+    expect(rows.length).toBe(1);
+    expect(rows[0].kind).toBe("session_error");
+  } finally { cleanup(); }
+});
+
+test("appendEvidence never writes premature_stop/session_idle/session_created kinds after the fix (store-level guard)", async () => {
+  const { dir, cleanup } = tmpDir();
+  try {
+    appendEvidence(dir, { ts: new Date().toISOString(), sessionID: "s1", kind: "premature_stop", project: "/work" });
+    appendEvidence(dir, { ts: new Date().toISOString(), sessionID: "s1", kind: "session_idle", project: "/work" });
+    appendEvidence(dir, { ts: new Date().toISOString(), sessionID: "s1", kind: "session_created", project: "/work" });
+    expect(readEvidence(dir).length).toBe(0);
+  } finally { cleanup(); }
 });
 
 test("looksLikeError uses the bash exit code when available", () => {
@@ -139,4 +169,42 @@ test("HarnessPlugin registers the harness-redteam adversarial reviewer", async (
   expect(config.agent["harness-redteam"].mode).toBe("subagent");
   expect(config.agent["harness-redteam"].permission.edit).toBe("deny");
   expect(config.agent["harness-redteam"].permission.bash).toBe("deny");
+});
+
+test("handleHarnessEvent does not auto-refine when autoRefineEnabled is false, even with signal", async () => {
+  const { dir, cleanup } = tmpDir();
+  try {
+    const rows = Array.from({ length: 5 }, (_, i) => JSON.stringify({ ts: `2026-01-0${i + 1}T00:00:00.000Z`, sessionID: "s1", kind: "tool_failure", tool: "bash", project: "/work" }));
+    fs.writeFileSync(path.join(dir, "evidence.jsonl"), rows.join("\n") + "\n", "utf8");
+    let prompted = 0;
+    const client: any = { session: { async create() { return { id: "s" }; }, async promptAsync() { prompted++; return {}; } } };
+    await handleHarnessEvent({ directory: "/work", global: dir, project: dir, client, autoRefineEnabled: false, minEvidence: 5, maxOps: 3, cooldownMs: 0 }, { type: "session.idle", properties: { sessionID: "s1" } });
+    expect(prompted).toBe(0);
+  } finally { cleanup(); }
+});
+
+test("handleHarnessEvent auto-refines on enough signal when enabled", async () => {
+  const { dir, cleanup } = tmpDir();
+  try {
+    const rows = Array.from({ length: 5 }, (_, i) => JSON.stringify({ ts: `2026-01-0${i + 1}T00:00:00.000Z`, sessionID: "s1", kind: "tool_failure", tool: "bash", project: "/work" }));
+    fs.writeFileSync(path.join(dir, "evidence.jsonl"), rows.join("\n") + "\n", "utf8");
+    let prompted = 0;
+    const client: any = { session: { async create() { return { id: "s" }; }, async promptAsync() { prompted++; return {}; } } };
+    await handleHarnessEvent({ directory: "/work", global: dir, project: dir, client, autoRefineEnabled: true, minEvidence: 5, maxOps: 3, cooldownMs: 0 }, { type: "session.idle", properties: { sessionID: "s1" } });
+    expect(prompted).toBe(1);
+  } finally { cleanup(); }
+});
+
+test("system.transform is idempotent across double plugin registration", async () => {
+  // Simulate two HarnessPlugin instances (git install + local repo) both running
+  // the transform hook over the same output.system: the block must appear once.
+  const hooksA = (await HarnessPlugin({ directory: process.cwd(), client: {} } as any)) as any;
+  const hooksB = (await HarnessPlugin({ directory: process.cwd(), client: {} } as any)) as any;
+  const output: any = { system: [] };
+  await hooksA["experimental.chat.system.transform"]({}, output);
+  await hooksB["experimental.chat.system.transform"]({}, output);
+  const memories = output.system.filter((s: string) => typeof s === "string" && s.includes("<harness-memories"));
+  const nudges = output.system.filter((s: string) => typeof s === "string" && s.includes("<harness-continuation"));
+  expect(memories.length).toBe(1);
+  expect(nudges.length).toBe(1);
 });

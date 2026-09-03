@@ -5,6 +5,10 @@ import { ensureDir } from "./paths";
 
 export const AUTO_REFINE_MIN_EVIDENCE = 5;
 export const AUTO_REFINE_MAX_OPS = 3;
+/** Minimum wall-clock gap between automatic refine runs (1 hour). */
+export const AUTO_REFINE_COOLDOWN_MS = 60 * 60 * 1000;
+/** Evidence kinds that count as real signal for triggering auto-refine. */
+export const SIGNAL_KINDS = new Set(["tool_failure", "retry"]);
 
 export type RefineState = {
   lastAutoRefineAt?: string;
@@ -35,8 +39,24 @@ export function newEvidenceSince(rows: EvidenceEntry[], watermark: string | unde
   return rows.filter((r) => r.ts > watermark);
 }
 
-export function isRefineDue(rows: EvidenceEntry[], state: RefineState, minNew = AUTO_REFINE_MIN_EVIDENCE): boolean {
-  return newEvidenceSince(rows, state.watermark).length >= minNew;
+/** Filter to real-signal rows only (tool failures + retries), excluding harness lifecycle noise. */
+export function signalEvidence(rows: EvidenceEntry[]): EvidenceEntry[] {
+  return rows.filter((r) => SIGNAL_KINDS.has(r.kind));
+}
+
+export function isRefineDue(
+  rows: EvidenceEntry[],
+  state: RefineState,
+  minNew = AUTO_REFINE_MIN_EVIDENCE,
+  cooldownMs = AUTO_REFINE_COOLDOWN_MS,
+): boolean {
+  const fresh = signalEvidence(newEvidenceSince(rows, state.watermark));
+  if (fresh.length < minNew) return false;
+  if (state.lastAutoRefineAt) {
+    const last = Date.parse(state.lastAutoRefineAt);
+    if (!Number.isNaN(last) && Date.now() - last < cooldownMs) return false;
+  }
+  return true;
 }
 
 export type AutoRefineClient = {
@@ -71,11 +91,15 @@ export async function runAutoRefine(
   directory: string,
   global: string,
   project: string,
-  opts: { enabled?: boolean; minEvidence?: number; maxOps?: number; parentID?: string; model?: string } = {},
+  opts: { enabled?: boolean; minEvidence?: number; maxOps?: number; parentID?: string; model?: string; cooldownMs?: number } = {},
 ): Promise<boolean> {
   if (opts.enabled === false) return false;
   if (refining) return false;
   const state = readRefineState(project);
+  if (state.lastAutoRefineAt) {
+    const last = Date.parse(state.lastAutoRefineAt);
+    if (!Number.isNaN(last) && Date.now() - last < (opts.cooldownMs ?? AUTO_REFINE_COOLDOWN_MS)) return false;
+  }
   const rows = readEvidence(global).filter((r) => r.project === directory);
   if (!isRefineDue(rows, state, opts.minEvidence ?? AUTO_REFINE_MIN_EVIDENCE)) return false;
   refining = true;
