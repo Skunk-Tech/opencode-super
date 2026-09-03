@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { makeNote, parseBuildOutput, ensureBuild } from "../.opencode/plugins/context-map.js";
+import { makeNote, parseBuildOutput, ensureBuild } from "./context-map-lib.js";
 
 test("makeNote points at the real map paths and documents the reference query accurately", () => {
   const note = makeNote("graft/");
