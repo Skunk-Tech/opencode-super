@@ -38,15 +38,15 @@ The map is a local, regenerable cache like `node_modules`. Commit the wiring if 
 The map has two shapes:
 
 - **Markdown nodes** (`graft/*.md`) — human-readable, one per file or directory. Each lists symbols and imports. Directories link to their files via `[[wikilinks]]`.
-- **Wiring graph** (`graft/.graph/wiring.json`) — machine-readable: files, dirs, symbols, and edges (`imports`).
+- **Wiring graph** (`graft/.graph/wiring.json`) — machine-readable: files, dirs, symbols, and edges (`imports` + `references`).
 
-To find callers of a symbol, grep `wiring.json` for edges where `to` matches the symbol. To find what a file depends on, read its markdown node's Imports section.
+To find callers of a symbol, read that symbol's `references` entries (each lists a file that mentions it). To find what a file depends on, read its import edges (resolved to real node ids) or its markdown node's Imports section.
 
 ```bash
 node -e '
 const w=require("./graft/.graph/wiring.json");
-const sym="getBootstrapContent";
-console.log(w.edges.filter(e=>e.to.includes(sym)).map(e=>e.from+" -> "+e.to));
+const sym=w.symbols.find(s=>s.symbol==="getBootstrapContent");
+console.log((sym?.references||[]).map(r=>r.file));
 '
 ```
 
